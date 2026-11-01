@@ -1,0 +1,206 @@
+# 需求实施计划
+- [x] 1. 初始化仓库骨架
+  - [x] 1.1 建立 Cargo workspace 与四个 crate 目录
+    - 创建 `Cargo.toml` 成员：`crates/bank-html`、`crates/paper-gen`、`crates/grading`、`crates/exam-server`
+    - 对应 design.md 仓库目录规划
+  - [x] 1.2 建立前端与夹具目录
+    - 创建 `web/`（Vite + TypeScript 双入口）、`testdata/bank-html/`、`data/` 并在 `.gitignore` 忽略 `data/`、`target/`、`web/node_modules/`、`web/dist/`
+    - 对应 design.md 仓库目录规划
+  - [x] 1.3 配置 exam-server 依赖与健康检查入口
+    - 在 `crates/exam-server` 接入 Axum/Tokio/SQLite，实现 `GET /api/health`
+    - 对应 design.md Components `exam-server`
+
+- [x] 2. 实现题库 HTML 解析与序列化
+  - [x] 2.1 定义题目语义类型
+    - 在 `crates/bank-html` 定义 `qtype`（single/multiple/judge/fill/code）、题干、选项、答案、来源
+    - 对应 requirements.md Requirement 2
+  - [x] 2.2 实现规范 HTML 解析器与导入报告
+    - 解析 `h1`/`h2`/`h3`/`.question`/`.options`/`.answer`；单选/多选按答案字母数区分；失败时给出文件名、题号、原因
+    - 对应 requirements.md Requirement 2 AC1-AC6
+  - [x] 2.3 实现规范 HTML pretty-printer
+    - 输出 UTF-8、`lang="zh-CN"`、黑白样式、规定标题层级与 `.question` 结构
+    - 对应 requirements.md Requirement 3 AC1、AC3
+  - [x] 2.4 为解析器与导入报告编写单元测试
+    - 夹具覆盖单选、多选、判断、填空、编程与整文件失败、部分失败
+    - 对应 requirements.md Requirement 2
+  - [x] 2.5 属性测试：序列化后再解析的语义字段相等
+    - 检查 design.md Correctness Properties 中 `parse(pretty_print(questions))` 语义相等
+    - 对应 requirements.md Requirement 3 AC2
+
+- [x] 3. 实现组卷与自动调分
+  - [x] 3.1 实现抽题、题型内乱序与选项乱序
+    - 在 `crates/paper-gen` 生成试卷快照：题量、题型分组顺序、`option_map`
+    - 对应 requirements.md Requirement 5 AC1-AC5
+  - [x] 3.2 实现分项分值、总分与余数分配
+    - 按 design.md 分值自动调整算法写入每题正整数 `points`，`T < N` 时返回错误
+    - 对应 requirements.md Requirement 6 AC1-AC5
+  - [x] 3.3 为题量不足与固定种子组卷编写单元测试
+    - 对应 requirements.md Requirement 5 AC4
+  - [x] 3.4 属性测试：快照各题分值为正整数且总和等于总分
+    - 检查 design.md Correctness Properties 分值总和
+    - 对应 requirements.md Requirement 6
+  - [x] 3.5 属性测试：选项乱序后 `option_map` 可还原原答案集合
+    - 检查 design.md Correctness Properties 选项映射可逆
+    - 对应 requirements.md Requirement 5 AC3
+
+- [x] 4. 实现客观题批改
+  - [x] 4.1 实现单选、多选、判断、填空判分
+    - 在 `crates/grading` 实现填空 trim/全角转半角/`|` 多答案；多选全对满分否则零分；编程题保持未给分
+    - 对应 requirements.md Requirement 12 AC1-AC4
+  - [x] 4.2 为各题型判分编写单元测试
+    - 对应 requirements.md Requirement 12
+  - [x] 4.3 属性测试：填空全角半角等价形式判分结论相同
+    - 检查 design.md Correctness Properties 填空规范化
+    - 对应 requirements.md Requirement 12 AC2
+
+- [x] 5. 检查点 - 核心库可编译
+  - 确保所有测试通过,如有疑问请询问用户
+
+- [x] 6. 实现服务端存储与统一错误体
+  - [x] 6.1 建立 SQLite schema 与迁移
+    - 创建 banks/questions/students/exam_tasks/paper_rules/task_roster/papers/attempts/sessions/settings，开启外键
+    - 对应 design.md Data Models
+  - [x] 6.2 实现数据目录与仓储
+    - 默认 `./data/exam.db`，`EXAM_DATA_DIR` 可覆盖；测试使用临时目录
+    - 对应 design.md 仓库目录规划、预览与本地验证约定
+  - [x] 6.3 实现统一 API 错误体
+    - `{ "error": { "code", "message", "details" } }`
+    - 对应 design.md Error Handling
+
+- [x] 7. 实现教师口令与会话
+  - [x] 7.1 实现首次设口令、登录、改口令
+    - Argon2 哈希写入 settings；未登录拒绝 `/api/teacher/*`，学生接口保持可访问
+    - 对应 requirements.md Requirement 15 AC1-AC3
+  - [x] 7.2 实现本机局域网地址列表接口
+    - 教师接入页展示非回环 IPv4
+    - 对应 requirements.md Requirement 8 AC6
+
+- [ ] 8. 实现题库管理 API
+  - [ ] 8.1 实现题库与题目的创建、编辑、列表
+    - 对应 requirements.md Requirement 1 AC1-AC3
+  - [ ] 8.2 实现删除保护
+    - 已被已发布任务试卷快照引用的题目返回 409
+    - 对应 requirements.md Requirement 1 AC4
+  - [ ] 8.3 实现 HTML 导入与导出接口
+    - `POST /api/teacher/banks/{id}/import-html`、`GET /api/teacher/banks/{id}/export-html`
+    - 对应 requirements.md Requirement 2、Requirement 3
+
+- [ ] 9. 实现学生名册 API
+  - [ ] 9.1 实现 CSV 导入
+    - 表头必须含班级、学号、姓名；缺列或缺必填跳过坏行并出报告；同学号后行覆盖
+    - 对应 requirements.md Requirement 4 AC1-AC3
+  - [ ] 9.2 实现任务名单选择
+    - 仅允许从已导入名册加入考试任务
+    - 对应 requirements.md Requirement 4 AC4
+
+- [ ] 10. 检查点 - 教师基础 API 可用
+  - 确保所有测试通过,如有疑问请询问用户
+
+- [ ] 11. 实现考试任务、发布、监控与收卷
+  - [ ] 11.1 实现任务创建（考试/练习、时长、提前交卷、组卷规则）
+    - 调用 paper-gen 固化 `score_plan_json`；题量不足保持草稿并返回 409
+    - 对应 requirements.md Requirement 5、Requirement 6、Requirement 7 AC1
+  - [ ] 11.2 实现发布与状态机
+    - 草稿 → 已发布，写入 `published_at`/`closes_at`
+    - 对应 requirements.md Requirement 7 AC2-AC3
+  - [ ] 11.3 实现监控、提前交卷开关与收卷
+    - 名单状态：未进入/作答中/已提交；收卷把未提交转为提交；开关立即作用于未提交会话
+    - 对应 requirements.md Requirement 16 AC1-AC3、Requirement 7 AC4
+
+- [ ] 12. 实现学生进入与试卷下发
+  - [ ] 12.1 实现学生匹配进入
+    - `POST /api/student/enter`：班级必填，姓名或学号至少一项；0 人 403；同班重名 409；学号姓名冲突 403
+    - 对应 requirements.md Requirement 8 AC1-AC5；design.md 学生匹配算法
+  - [ ] 12.2 实现试卷快照下发
+    - 考试中途重进复用快照；响应省略参考答案与得分
+    - 对应 requirements.md Requirement 5 AC5、Requirement 9 AC1
+  - [ ] 12.3 为学生匹配与答案剥离编写单元测试
+    - 对应 requirements.md Requirement 8、Requirement 9 AC1
+  - [ ] 12.4 属性测试：考试模式在公开前学生接口不含答案字段
+    - 检查 design.md Correctness Properties 答案隔离
+    - 对应 requirements.md Requirement 9 AC1、Requirement 13 AC4
+
+- [ ] 13. 实现作答、保存、提交与练习反馈
+  - [ ] 13.1 实现答案保存
+    - `PUT /api/student/answers`，未提交状态保存间隔由服务端接受，前端按 15 秒调用
+    - 对应 requirements.md Requirement 11 AC1-AC2
+  - [ ] 13.2 实现考试模式提交
+    - 允许提前交卷才可主动提交；禁止时 403；已提交 409；到时用已保存内容生成提交
+    - 对应 requirements.md Requirement 9 AC2-AC6
+  - [ ] 13.3 实现练习模式提交与再次作答
+    - 提交后立即返回得分、对错、参考答案；再次进入生成新快照
+    - 对应 requirements.md Requirement 10 AC1-AC3
+  - [ ] 13.4 属性测试：同一考试任务每名学生至多一份已提交记录
+    - 检查 design.md Correctness Properties 考试一次提交
+    - 对应 requirements.md Requirement 9 AC6
+
+- [ ] 14. 检查点 - 作答闭环可用
+  - 确保所有测试通过,如有疑问请询问用户
+
+- [ ] 15. 实现批改、人工给分与公开回发
+  - [ ] 15.1 提交时自动批改客观题
+    - 累计客观分；编程题待人工；教师确认后任务进入已批改
+    - 对应 requirements.md Requirement 12 AC1-AC6
+  - [ ] 15.2 实现编程题人工给分
+    - `PUT /api/teacher/attempts/{id}/code-scores`，分数为 0 到该题满分的整数
+    - 对应 requirements.md Requirement 12 AC5
+  - [ ] 15.3 实现公开试卷与回发
+    - 在线按 `client_id` 投递；离线归档到 `student_id`，下次学生匹配后领取
+    - 对应 requirements.md Requirement 13 AC1-AC4
+  - [ ] 15.4 属性测试：公开时在线按 client_id、离线按 student_id 领取
+    - 检查 design.md Correctness Properties 回发路由
+    - 对应 requirements.md Requirement 13 AC2-AC3
+
+- [ ] 16. 实现成绩导出与分析
+  - [ ] 16.1 实现成绩列表接口
+    - 学号、姓名、总分、提交时间、客户端标识、各题得分
+    - 对应 requirements.md Requirement 14 AC1
+  - [ ] 16.2 实现 UTF-8 BOM CSV 导出
+    - 列含学号、姓名、班级、总分、各题得分、提交时间
+    - 对应 requirements.md Requirement 14 AC2
+  - [ ] 16.3 实现分析接口
+    - 平均/最高/最低/中位数、及格率（默认满分 60% 可改）、逐题正确率、题型得分率、五段分布
+    - 对应 requirements.md Requirement 14 AC3-AC5
+
+- [ ] 17. 实现教师网页
+  - [ ] 17.1 配置 Vite 双入口、allowedHosts 与 `/api` 反代
+    - `server.allowedHosts` 含 `.monkeycode-ai.online`；`/api` 代理到 `http://127.0.0.1:8080`
+    - 对应 design.md Components `web`、前端反代约定
+  - [ ] 17.2 实现登录、设口令、接入地址页
+    - 对应 requirements.md Requirement 15、Requirement 8 AC6
+  - [ ] 17.3 实现题库、题目编辑、HTML 导入报告与导出
+    - 对应 requirements.md Requirement 1、Requirement 2、Requirement 3
+  - [ ] 17.4 实现学生名册导入与任务名单
+    - 对应 requirements.md Requirement 4
+  - [ ] 17.5 实现组卷规则、分值确认表、任务发布与监控收卷
+    - 对应 requirements.md Requirement 5、Requirement 6、Requirement 7、Requirement 16
+  - [ ] 17.6 实现批改给分、公开试卷、成绩与分析页
+    - 对应 requirements.md Requirement 12、Requirement 13、Requirement 14
+
+- [ ] 18. 实现学生网页
+  - [ ] 18.1 实现进入页（班级 + 姓名或学号）与 client_id
+    - `localStorage` 保存客户端标识；展示匹配错误提示
+    - 对应 requirements.md Requirement 8
+  - [ ] 18.2 实现考试作答页
+    - 隐藏答案与分数；按提前交卷开关显示提交；15 秒保存答案
+    - 对应 requirements.md Requirement 9、Requirement 11
+  - [ ] 18.3 实现已提交态与练习立即反馈
+    - 考试只显示已提交；练习显示得分、对错、参考答案并允许再练
+    - 对应 requirements.md Requirement 9 AC5、Requirement 10
+  - [ ] 18.4 实现已公开试卷领取与展示
+    - 当场会话在线接收；历史用学生匹配后展示批改详情
+    - 对应 requirements.md Requirement 13
+
+- [ ] 19. 实现进程内静态资源与启动脚本
+  - [ ] 19.1 让 exam-server 托管 `/teacher/*` 与 `/student/*`
+    - 发布构建使用 `web/dist` 或可执行文件旁 `web/`
+    - 对应 design.md Architecture
+  - [ ] 19.2 编写 Windows 启动批处理
+    - `scripts/start-teacher.bat` 使用 CRLF，用 `goto` 分支，不写仓库级 `.cargo/config.toml`
+    - 对应 design.md 仓库目录规划、MEMORY 构建约定
+  - [ ] 19.3 编写 Linux 启动脚本
+    - `scripts/start-teacher.sh` 启动后端；开发模式配合 `web` 的 Vite
+    - 对应 design.md 仓库目录规划
+
+- [ ] 20. 检查点 - 教室闭环可演示
+  - 确保所有测试通过,如有疑问请询问用户

@@ -1,0 +1,11 @@
+[package]
+name = "grading"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+thiserror = "2"
+bank-html = { path = "../bank-html" }
+
+[dev-dependencies]
+proptest = "1"

@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Python 程序设计基础练习 200 题（含答案）</title>
+<style>
+    .check-mark {
+        font-family: "Segoe UI Symbol", "Arial Unicode MS", "DejaVu Sans", Arial, sans-serif;
+        font-weight: normal;
+    }
+</style>
+</head>
+<body>
+
+<h1>Python 程序设计基础练习 200 题（含答案）</h1>
+<p>题型：单项选择题 150 题、判断题 20 题、填空题 30 题</p>
+<p>范围：输入与输出、变量的定义和使用、常见数据类型（整型、浮点型、字符串、列表、字典）、分支结构、循环结构（for 循环与 range 函数）、两种导入库的方式、random 库的 randint() 函数。</p>
+
+<hr>
+
+<h2>一、单项选择题（共 150 题）</h2>
+
+<ol>
+<li>在 Python 中，用于把信息输出到屏幕的函数是（　）<br>A. input()　B. print()　C. output()　D. write()<br>答案：B</li>
+<li>用于从键盘接收输入的函数是（　）<br>A. input()　B. print()　C. read()　D. scan()<br>答案：A</li>
+<li>input() 函数返回的数据类型总是（　）<br>A. int　B. float　C. str　D. 由输入内容决定<br>答案：C</li>
+<li>执行 x = input("请输入：") 后，若输入 123，则 x 的数据类型是（　）<br>A. int　B. str　C. float　D. list<br>答案：B</li>
+<li>要把 input() 得到的字符串 "12" 转换成整数，应使用（　）<br>A. str(12)　B. int("12")　C. float(12)　D. int(12.0)<br>答案：B</li>
+<li>print("a", "b", "c") 的输出结果是（　）<br>A. abc　B. a b c　C. a,b,c　D. a b c（各占一行）<br>答案：B</li>
+<li>print("a", "b", sep="-") 的输出结果是（　）<br>A. a b　B. a-b　C. ab　D. a b（各占一行）<br>答案：B</li>
+<li>print("a", end="") 的作用是（　）<br>A. 输出 a 后换行　B. 输出 a 后不换行　C. 输出 a 后加一个空格　D. 语句报错<br>答案：B</li>
+<li>print(1, 2, 3, sep="") 的输出结果是（　）<br>A. 1 2 3　B. 123　C. 1,2,3　D. 1、2、3 各占一行<br>答案：B</li>
+<li>print("1+2") 的输出结果是（　）<br>A. 3　B. 1+2　C. "1+2"　D. 12<br>答案：B</li>
+<li>下列语句中，可以一次输出多个值的是（　）<br>A. print(1, 2)　B. print(1)　C. input(1)　D. int(1)<br>答案：A</li>
+<li>若 a = 5，b = 3，则 print(a, b) 的输出是（　）<br>A. 53　B. 5 3　C. 5,3　D. 8<br>答案：B</li>
+<li>关于 print() 函数，下列说法正确的是（　）<br>A. 一次只能输出一个值　B. 可以输出多个值，默认用空格分隔　C. 输出的内容一定换行　D. 不能输出字符串<br>答案：B</li>
+<li>下列变量名合法的是（　）<br>A. 2a　B. a-b　C. _abc　D. for<br>答案：C</li>
+<li>下列变量名不合法的是（　）<br>A. abc　B. _123　C. a1　D. 1a<br>答案：D</li>
+<li>Python 中的变量名区分大小写，因此 A 与 a（　）<br>A. 是同一个变量　B. 是两个不同的变量　C. 会报错　D. 会自动转换<br>答案：B</li>
+<li>下列属于 Python 关键字的是（　）<br>A. if　B. IF　C. If　D. iF<br>答案：A</li>
+<li>下列关于变量的说法正确的是（　）<br>A. 使用前必须先声明类型　B. 不需要声明类型，直接赋值即可　C. 变量名可以以数字开头　D. 变量名中可以有空格<br>答案：B</li>
+<li>执行 a = 1，然后执行 a = "hello"，此时 a 的值是（　）<br>A. 1　B. "hello"　C. 报错　D. 1hello<br>答案：B</li>
+<li>下列赋值语句正确的是（　）<br>A. 1 = a　B. a + b = 3　C. a = 3　D. a = 3 = b<br>答案：C</li>
+<li>要交换变量 a 和 b 的值，正确的写法是（　）<br>A. a = b　b = a　B. b = a　a = b　C. a, b = b, a　D. a = b<br>答案：C</li>
+<li>下列不是 Python 数据类型的是（　）<br>A. int　B. float　C. str　D. char<br>答案：D</li>
+<li>type(3) 的结果是（　）<br>A. int　B. float　C. str　D. bool<br>答案：A</li>
+<li>type(3.0) 的结果是（　）<br>A. int　B. float　C. str　D. bool<br>答案：B</li>
+<li>type("3") 的结果是（　）<br>A. int　B. float　C. str　D. bool<br>答案：C</li>
+<li>下列属于浮点型常量的是（　）<br>A. 3　B. 3.0　C. "3"　D. 3+0<br>答案：B</li>
+<li>表达式 7 // 2 的值是（　）<br>A. 3.5　B. 3　C. 4　D. 1<br>答案：B</li>
+<li>表达式 7 % 2 的值是（　）<br>A. 1　B. 3　C. 3.5　D. 0<br>答案：A</li>
+<li>表达式 7 / 2 的值是（　）<br>A. 3　B. 3.5　C. 4　D. 1<br>答案：B</li>
+<li>表达式 2 ** 3 的值是（　）<br>A. 6　B. 8　C. 9　D. 5<br>答案：B</li>
+<li>表达式 10 // 3 的值是（　）<br>A. 3　B. 3.33　C. 4　D. 1<br>答案：A</li>
+<li>表达式 10 % 3 的值是（　）<br>A. 1　B. 3　C. 0　D. 3.33<br>答案：A</li>
+<li>表达式 "ab" + "cd" 的值是（　）<br>A. abcd　B. ab cd　C. ab+cd　D. 报错<br>答案：A</li>
+<li>表达式 "ab" * 3 的值是（　）<br>A. ababab　B. ab3　C. 3ab　D. 报错<br>答案：A</li>
+<li>表达式 "3" + 3 的结果是（　）<br>A. 6　B. "33"　C. 报错（TypeError）　D. "6"<br>答案：C</li>
+<li>表达式 int("12") + 1 的值是（　）<br>A. 13　B. "121"　C. 121　D. 报错<br>答案：A</li>
+<li>表达式 int(3.9) 的值是（　）<br>A. 3　B. 4　C. 3.9　D. 报错<br>答案：A</li>
+<li>表达式 float(3) 的值是（　）<br>A. 3　B. 3.0　C. "3"　D. 报错<br>答案：B</li>
+<li>表达式 str(12) + "3" 的值是（　）<br>A. 15　B. "123"　C. 123　D. 报错<br>答案：B</li>
+<li>表达式 int("3.5") 的结果是（　）<br>A. 3　B. 4　C. 报错　D. 3.5<br>答案：C</li>
+<li>要求出字符串的长度，应使用的函数是（　）<br>A. size()　B. len()　C. length()　D. count()<br>答案：B</li>
+<li>len("hello") 的值是（　）<br>A. 4　B. 5　C. 6　D. 报错<br>答案：B</li>
+<li>表达式 3 + 4 * 2 的值是（　）<br>A. 14　B. 11　C. 24　D. 9<br>答案：B</li>
+<li>表达式 (3 + 4) * 2 的值是（　）<br>A. 14　B. 11　C. 24　D. 9<br>答案：A</li>
+<li>下列运算符中优先级最高的是（　）<br>A. +　B. *　C. **　D. =<br>答案：C</li>
+<li>表达式 5 &gt; 3 的值是（　）<br>A. True　B. False　C. 5　D. 报错<br>答案：A</li>
+<li>表达式 5 == 5.0 的值是（　）<br>A. True　B. False　C. 报错　D. 无法比较<br>答案：A</li>
+<li>表达式 "abc" &lt; "abd" 的值是（　）<br>A. True　B. False　C. 报错　D. None<br>答案：A</li>
+<li>下列属于布尔值的是（　）<br>A. "True"　B. True　C. true　D. TRUE<br>答案：B</li>
+<li>表达式 1 and 0 的值是（　）<br>A. 1　B. 0　C. True　D. 报错<br>答案：B</li>
+<li>表达式 not True 的值是（　）<br>A. True　B. False　C. 0　D. 报错<br>答案：B</li>
+<li>下列属于列表的是（　）<br>A. (1, 2)　B. [1, 2]　C. {1: 2}　D. "1, 2"<br>答案：B</li>
+<li>下列属于字典的是（　）<br>A. [1, 2]　B. {1, 2}　C. {"a": 1}　D. ("a", 1)<br>答案：C</li>
+<li>列表 [1, 2, 3] 中元素 2 的下标是（　）<br>A. 0　B. 1　C. 2　D. 3<br>答案：B</li>
+<li>已知 a = [10, 20, 30]，则 a[0] 的值是（　）<br>A. 10　B. 20　C. 30　D. 报错<br>答案：A</li>
+<li>已知 a = [10, 20, 30]，则 len(a) 的值是（　）<br>A. 2　B. 3　C. 30　D. 报错<br>答案：B</li>
+<li>已知 d = {"name": "Tom", "age": 18}，则 d["name"] 的值是（　）<br>A. name　B. Tom　C. 18　D. 报错<br>答案：B</li>
+<li>向列表末尾添加元素应使用的方法是（　）<br>A. add()　B. append()　C. insert()　D. push()<br>答案：B</li>
+<li>关于字典，下列说法正确的是（　）<br>A. 字典用下标访问元素　B. 字典通过键来访问对应的值　C. 字典中的元素有固定序号　D. 字典定义后不能修改<br>答案：B</li>
+<li>下列数据类型中属于“不可变”的是（　）<br>A. 列表　B. 字典　C. 字符串　D. 以上都不是<br>答案：C</li>
+<li>下列 if 语句写法正确的是（　）<br>A. if x &gt; 0:　B. if (x &gt; 0)　C. if x &gt; 0 then　D. if x &gt; 0;<br>答案：A</li>
+<li>Python 中 if 语句的条件后面必须加（　）<br>A. 分号　B. 冒号　C. 括号　D. 逗号<br>答案：B</li>
+<li>Python 中表示“否则”的关键字是（　）<br>A. else　B. elif　C. elseif　D. other<br>答案：A</li>
+<li>在 if-elif-else 结构中，elif 的作用是（　）<br>A. 结束程序　B. 表示“否则如果”　C. 表示循环　D. 定义函数<br>答案：B</li>
+<li>下列关于缩进的说法正确的是（　）<br>A. 缩进可有可无　B. 缩进表示代码块，同一代码块缩进必须一致　C. 缩进必须用 Tab 键　D. 缩进必须正好是 4 个空格<br>答案：B</li>
+<li>执行 x = 5；if x &gt; 3: print("A") else: print("B")，输出结果是（　）<br>A. A　B. B　C. AB　D. 报错<br>答案：A</li>
+<li>执行 x = 2；if x &gt; 3: print("A") elif x &gt; 1: print("B") else: print("C")，输出结果是（　）<br>A. A　B. B　C. C　D. 报错<br>答案：B</li>
+<li>下列关系运算符中表示“不等于”的是（　）<br>A. &lt;&gt;　B. !=　C. =!　D. ==<br>答案：B</li>
+<li>判断 x 在 1 到 10 之间（含端点），正确的条件是（　）<br>A. 1 &lt;= x &lt;= 10　B. 1 &lt;= x and x &lt;= 10　C. x &gt;= 1 and x &lt;= 10　D. 以上都对<br>答案：D</li>
+<li>判断 x 能被 3 整除的条件是（　）<br>A. x % 3 == 0　B. x / 3 == 0　C. x // 3 == 0　D. x % 3 = 0<br>答案：A</li>
+<li>if 语句中条件表达式的值可以是（　）<br>A. 只能是 True　B. 只能是 False　C. 任意类型，非零或非空即为真　D. 只能是整数<br>答案：C</li>
+<li>下列关键字不能用于分支结构的是（　）<br>A. if　B. elif　C. else　D. for<br>答案：D</li>
+<li>判断年份 year 是闰年（能被 4 整除但不能被 100 整除，或能被 400 整除）的正确条件是（　）<br>A. year % 4 == 0　B. year % 4 == 0 and year % 100 != 0 or year % 400 == 0　C. year % 400 == 0　D. year % 4 == 0 or year % 100 == 0<br>答案：B</li>
+<li>执行 x = 0；if x: print("真") else: print("假")，输出结果是（　）<br>A. 真　B. 假　C. 报错　D. 无输出<br>答案：B</li>
+<li>若 a = 3，b = 5，执行 if a &gt; b: c = a else: c = b 后，c 的值是（　）<br>A. 3　B. 5　C. 8　D. 报错<br>答案：B</li>
+<li>单分支 if 语句中，当条件为 False 时（　）<br>A. 执行 if 下面的语句　B. 跳过 if 下面的语句　C. 程序报错　D. 程序退出<br>答案：B</li>
+<li>在多分支 if-elif 结构中，若前面某个条件已经成立，则后面的 elif（　）<br>A. 继续判断　B. 不再判断　C. 全部执行　D. 报错<br>答案：B</li>
+<li>下列关于 if 语句的说法错误的是（　）<br>A. 条件后要有冒号　B. 语句体要缩进　C. else 后面要跟条件　D. if 可以嵌套使用<br>答案：C</li>
+<li>下列表达式的值一定为 True 的是（　）<br>A. 3 &gt; 5　B. 3 != 3　C. not 0　D. 0 and 1<br>答案：C</li>
+<li>若 x = 10，则表达式 x &gt; 5 and x &lt; 20 的值是（　）<br>A. True　B. False　C. 10　D. 报错<br>答案：A</li>
+<li>若 x = 10，则表达式 x &gt; 5 or x &lt; 0 的值是（　）<br>A. True　B. False　C. 10　D. 报错<br>答案：A</li>
+<li>下列符号不是关系运算符的是（　）<br>A. &gt;　B. &gt;=　C. =　D. &lt;=<br>答案：C</li>
+<li>判断字符 ch 是大写字母的条件是（　）<br>A. ch &gt;= "A" and ch &lt;= "Z"　B. ch &gt;= "a" and ch &lt;= "z"　C. ch &gt;= "A" or ch &lt;= "Z"　D. ch == "A"<br>答案：A</li>
+<li>关于 if 的嵌套，下列说法正确的是（　）<br>A. 不能嵌套　B. 可以嵌套，内层语句要再次缩进　C. 只能嵌套两层　D. 嵌套时必须用 elif<br>答案：B</li>
+<li>程序：a = 1；b = 2；if a &lt; b: print("a&lt;b")，下一行 print("结束") 与 if 对齐。程序输出是（　）<br>A. 只输出 a&lt;b　B. 只输出 结束　C. 两行都输出　D. 报错<br>答案：C</li>
+<li>Python 中用于计次循环的关键字是（　）<br>A. for　B. while　C. do　D. loop<br>答案：A</li>
+<li>执行 for i in range(5): 循环体共执行（　）次<br>A. 4　B. 5　C. 6　D. 0<br>答案：B</li>
+<li>range(5) 生成的整数序列是（　）<br>A. 1,2,3,4,5　B. 0,1,2,3,4　C. 0,1,2,3,4,5　D. 1,2,3,4<br>答案：B</li>
+<li>range(1, 5) 生成的整数序列是（　）<br>A. 1,2,3,4,5　B. 1,2,3,4　C. 0,1,2,3,4　D. 2,3,4<br>答案：B</li>
+<li>range(1, 10, 2) 生成的整数序列是（　）<br>A. 1,3,5,7,9　B. 1,3,5,7　C. 1,2,3,…,10　D. 2,4,6,8<br>答案：A</li>
+<li>range(10, 0, -1) 生成的第一个数是（　）<br>A. 10　B. 9　C. 0　D. 1<br>答案：A</li>
+<li>list(range(3)) 的结果是（　）<br>A. [1,2,3]　B. [0,1,2]　C. [0,1,2,3]　D. [3]<br>答案：B</li>
+<li>执行 for i in range(3): print(i)，输出结果是（　）<br>A. 123　B. 0、1、2 各占一行　C. 3　D. 0,1,2<br>答案：B</li>
+<li>求 1 到 100 的和，循环头应写为（　）<br>A. for i in range(1, 101)　B. for i in range(1, 100)　C. for i in range(100)　D. for i in range(0, 100, 2)<br>答案：A</li>
+<li>执行 s = 0；for i in range(1, 4): s = s + i 后，s 的值是（　）<br>A. 3　B. 6　C. 10　D. 4<br>答案：B</li>
+<li>循环中用来提前结束整个循环的关键字是（　）<br>A. continue　B. break　C. pass　D. return<br>答案：B</li>
+<li>用来结束本次循环、直接进入下一次循环的关键字是（　）<br>A. break　B. continue　C. pass　D. exit<br>答案：B</li>
+<li>关于 for 循环，下列说法正确的是（　）<br>A. for 后面必须跟循环变量和 in　B. for 循环只能用于数字　C. for 循环的次数无法确定　D. for 循环必须配合 break 使用<br>答案：A</li>
+<li>while True: 构成的循环（　）<br>A. 一次都不执行　B. 只执行一次　C. 是无限循环（除非遇到 break）　D. 语法报错<br>答案：C</li>
+<li>下列不是循环控制语句的是（　）<br>A. break　B. continue　C. else　D. for<br>答案：C</li>
+<li>执行 for i in range(1, 5): print(i, end="")，输出结果是（　）<br>A. 1234　B. 12345　C. 0 1 2 3 4　D. 0123<br>答案：A</li>
+<li>执行 for i in range(0, 10, 3): print(i, end=" ")，输出结果是（　）<br>A. 0 3 6 9　B. 0 3 6　C. 3 6 9　D. 0 1 2 3<br>答案：A</li>
+<li>range(2, 2) 生成的序列包含（　）<br>A. 0 个数　B. 1 个数　C. 2 个数　D. 报错<br>答案：A</li>
+<li>要循环 5 次计算 5!（阶乘），range 应写为（　）<br>A. range(5)　B. range(1, 6)　C. range(1, 5)　D. range(6)<br>答案：B</li>
+<li>下列循环能输出 5 个 "*" 的是（　）<br>A. for i in range(4): print("*")　B. for i in range(5): print("*")　C. for i in range(1, 5): print("*")　D. for i in range(6): print("*")<br>答案：B</li>
+<li>循环嵌套时，外层循环执行 3 次，内层循环执行 4 次，内层语句共执行（　）次<br>A. 7　B. 12　C. 3　D. 4<br>答案：B</li>
+<li>执行 for i in range(3): for j in range(2): print("*", end="")，共输出（　）个 *<br>A. 3　B. 5　C. 6　D. 8<br>答案：C</li>
+<li>执行 for i in range(1, 10): if i == 3: break，循环结束时 i 的值是（　）<br>A. 2　B. 3　C. 9　D. 10<br>答案：B</li>
+<li>执行 for i in range(5): if i == 2: continue 后接着 print(i, end="")，输出结果是（　）<br>A. 01234　B. 0134　C. 012　D. 34<br>答案：B</li>
+<li>关于 range() 函数，下列说法错误的是（　）<br>A. 可以只有一个参数　B. 可以有三个参数　C. 它的返回值是列表　D. 常与 for 循环配合使用<br>答案：C</li>
+<li>若 for i in range(10): 的循环体中有 break，则该循环体（　）<br>A. 一定执行 10 次　B. 可能少于 10 次　C. 一定不执行　D. 一定执行 1 次<br>答案：B</li>
+<li>求 1~100 中所有偶数的和，循环中应判断的条件是（　）<br>A. i % 2 == 0　B. i % 2 == 1　C. i % 3 == 0　D. i == 2<br>答案：A</li>
+<li>要输出 1 到 10 这 10 个整数，正确的循环头是（　）<br>A. for i in range(10)　B. for i in range(1, 11)　C. for i in range(0, 10)　D. for i in range(1, 10)<br>答案：B</li>
+<li>下列循环是死循环的是（　）<br>A. for i in range(5)　B. while False　C. while True　D. for i in [1, 2]<br>答案：C</li>
+<li>执行 n = 0；for i in range(1, 5): n = n + i 后，n 的值是（　）<br>A. 10　B. 15　C. 5　D. 4<br>答案：A</li>
+<li>下列循环变量名书写合法的是（　）<br>A. for 1i in range(3)　B. for i in range(3)　C. for i-j in range(3)　D. for in in range(3)<br>答案：B</li>
+<li>要逐个输出字符串 "hello" 中的字符，可以写（　）<br>A. for c in "hello"　B. for c in range("hello")　C. for "hello"　D. for c = 1 to 5<br>答案：A</li>
+<li>for i in range(3, 10, 3): 循环体共执行（　）次<br>A. 2　B. 3　C. 4　D. 7<br>答案：B</li>
+<li>循环 for i in range(1, 6): 中，i 的最后一个值是（　）<br>A. 5　B. 6　C. 1　D. 4<br>答案：A</li>
+<li>执行 for i in range(1, 5): print("*" * i)，共输出（　）个 *<br>A. 4　B. 10　C. 5　D. 15<br>答案：B</li>
+<li>关于循环的 else 子句，下列说法正确的是（　）<br>A. 循环正常结束（没有被 break 中断）时执行　B. 循环一开始就执行　C. 每次循环都执行　D. 出现异常时执行<br>答案：A</li>
+<li>计算 1+3+5+…+99 的和，range 应写为（　）<br>A. range(1, 100, 2)　B. range(1, 99, 2)　C. range(2, 100, 2)　D. range(1, 100)<br>答案：A</li>
+<li>执行 for i in range(5): pass，其中 pass 的作用是（　）<br>A. 结束循环　B. 什么也不做，仅作占位　C. 输出空行　D. 报错<br>答案：B</li>
+<li>若想让循环体固定执行 10 次，最合适的是（　）<br>A. for i in range(10)　B. while True　C. if　D. for i in "10"<br>答案：A</li>
+<li>执行 s = 0；for i in range(1, 101): s = s + i；print(s)，输出结果是（　）<br>A. 5050　B. 5000　C. 4950　D. 100<br>答案：A</li>
+<li>导入 random 库的正确语句是（　）<br>A. import random　B. include random　C. using random　D. load random<br>答案：A</li>
+<li>只从 random 库中导入 randint 函数，正确的语句是（　）<br>A. import randint　B. from random import randint　C. import random.randint　D. from randint import random<br>答案：B</li>
+<li>已执行 import random，要生成 1~10 的随机整数，正确的写法是（　）<br>A. randint(1, 10)　B. random.randint(1, 10)　C. random.randrange(1, 10)　D. randint(1-10)<br>答案：B</li>
+<li>random.randint(1, 10) 可能产生的值是（　）<br>A. 1~9　B. 1~10　C. 0~10　D. 0~9<br>答案：B</li>
+<li>random.randint(1, 6) 可以用来模拟（　）<br>A. 抛硬币　B. 掷骰子　C. 抽扑克牌　D. 计时<br>答案：B</li>
+<li>执行 from random import randint 后，下列说法正确的是（　）<br>A. 只能使用 randint()　B. 仍然可以使用 random.randint()　C. 必须再写一次 import random　D. 语句报错<br>答案：A</li>
+<li>关于 random.randint(1, 10) 的结果，说法正确的是（　）<br>A. 每次运行结果都相同　B. 每次运行结果可能不同　C. 一定是 1　D. 一定是 10<br>答案：B</li>
+<li>random.randint(1, 1) 的结果是（　）<br>A. 0　B. 1　C. 任意随机数　D. 报错<br>答案：B</li>
+<li>执行 random.randint(10, 1) 会（　）<br>A. 返回 1~10 的随机数　B. 报错　C. 返回 0　D. 返回 10<br>答案：B</li>
+<li>下列写法错误的是（　）<br>A. import random　B. from random import randint　C. import random as r　D. from random import<br>答案：D</li>
+<li>调用 random.randint(1, 100) 时，参数的个数是（　）<br>A. 1　B. 2　C. 3　D. 0<br>答案：B</li>
+<li>若已写 import random as r，则生成随机整数应写为（　）<br>A. random.randint(1, 5)　B. r.randint(1, 5)　C. randint(1, 5)　D. r.random(1, 5)<br>答案：B</li>
+<li>random.randint(0, 9) 最多可能有（　）种不同的结果<br>A. 9　B. 10　C. 11　D. 1<br>答案：B</li>
+<li>关于 randint 函数，下列说法正确的是（　）<br>A. 生成随机小数　B. 生成指定范围内的随机整数　C. 生成随机字符串　D. 生成随机列表<br>答案：B</li>
+<li>导入库的语句一般写在程序的（　）<br>A. 末尾　B. 开头　C. 循环体中　D. 任意位置，但必须缩进<br>答案：B</li>
+<li>下列语句能生成 1~10（含 1 和 10）随机整数的是（　）<br>A. random.randint(1, 10)　B. range(1, 10)　C. random.randint(1, 9)　D. int(10 * 1)<br>答案：A</li>
+<li>要随机输出“石头、剪刀、布”中的一个，可行的方法是（　）<br>A. 用 random.randint(1, 3) 得到随机数后按结果判断输出　B. print(random)　C. input()　D. random.randint(1, 4)<br>答案：A</li>
+<li>执行 import random 后，random.randint(2, 5) 不可能得到（　）<br>A. 2　B. 3　C. 5　D. 6<br>答案：D</li>
+<li>关于 from random import randint 与 import random，说法正确的是（　）<br>A. 前者调用函数时不用写 random.　B. 前者调用时必须写 random.　C. 二者完全一样　D. 后者不需要导入库<br>答案：A</li>
+<li>下列库名书写正确的是（　）<br>A. Random　B. random　C. RANDOM　D. random库<br>答案：B</li>
+<li>若程序中只有 import random，则可以使用（　）<br>A. random.randint()　B. randint()　C. 两者都不行　D. 只能写 randint()<br>答案：A</li>
+<li>用 random.randint(1, 3) 模拟猜拳，程序每运行一次（　）<br>A. 结果固定不变　B. 结果可能不同　C. 输出库名　D. 报错<br>答案：B</li>
+<li>执行 import random；a = random.randint(1, 5)；print(a)，输出可能是（　）<br>A. 0　B. 3　C. 6　D. 1.5<br>答案：B</li>
+<li>导入库的目的不包括（　）<br>A. 使用库中已有的函数　B. 减少重复编写代码　C. 改变 Python 语言的基本规则　D. 扩展程序功能<br>答案：C</li>
+<li>关于两种导入方式，下列说法错误的是（　）<br>A. import 库名 之后要用“库名.函数名()”的形式调用　B. from 库名 import 函数名 之后可以直接用“函数名()”调用　C. 两种方式都可以导入 random 库中的函数　D. 只有 import 库名 这一种方式是合法的<br>答案：D</li>
+</ol>
+
+<hr>
+
+<h2>二、判断题（共 20 题，正确填“<span class="check-mark">&#10003;</span>”，错误填“×”）</h2>
+
+<ol>
+<li>Python 中的变量在使用前必须先声明数据类型。（　）<br>答案：×</li>
+<li>input() 函数接收到的数据默认是字符串类型。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>print() 函数可以一次输出多个值，默认用空格分隔。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>在 Python 中，变量名可以以数字开头。（　）<br>答案：×</li>
+<li>变量被赋值后类型就固定不变，不能再给它赋其他类型的值。（　）<br>答案：×</li>
+<li>字符串可以用“+”号进行拼接。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>表达式 7 // 2 的结果是 3.5。（　）<br>答案：×</li>
+<li>elif 必须与 if 配合使用，不能单独出现。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>if 语句的条件表达式后面必须加冒号。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>Python 通过缩进来表示代码块。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>range(1, 5) 生成的整数序列是 1、2、3、4、5。（　）<br>答案：×</li>
+<li>range() 函数可以有三个参数，第三个参数表示步长。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>break 语句的作用是结束本次循环，继续执行下一次循环。（　）<br>答案：×</li>
+<li>continue 语句的作用是跳出整个循环。（　）<br>答案：×</li>
+<li>在同一个循环中，break 和 continue 都可以使用。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>random.randint(1, 10) 可以生成 1 到 10 之间（含 1 和 10）的随机整数。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>import random 和 from random import randint 都是导入库的正确方式。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>使用 from random import randint 后，调用时应写成 random.randint(1, 5)。（　）<br>答案：×</li>
+<li>列表用方括号表示，字典用花括号表示，字典中的元素以“键:值”的形式存储。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+<li>循环嵌套时，外层循环执行一次，内层循环一般会完整执行一遍。（　）<br>答案：<span class="check-mark">&#10003;</span></li>
+</ol>
+
+<hr>
+
+<h2>三、填空题（共 30 题）</h2>
+
+<ol>
+<li>在屏幕上输出 Hello 的语句是：________。<br>答案：print("Hello")</li>
+<li>从键盘输入一个整数并存入变量 n，语句为：n = int(________("请输入整数："))。<br>答案：input</li>
+<li>把字符串 "3.14" 转换成浮点数的表达式是 ________。<br>答案：float("3.14")</li>
+<li>表达式 2 ** 3 的值是 ________。<br>答案：8</li>
+<li>表达式 17 % 5 的值是 ________。<br>答案：2</li>
+<li>表达式 17 // 5 的值是 ________。<br>答案：3</li>
+<li>len("Python") 的值是 ________。<br>答案：6</li>
+<li>已知 a = 3，b = 4，则表达式 a &lt; b 的值是 ________。<br>答案：True</li>
+<li>判断变量 x 是偶数的条件表达式是 ________。<br>答案：x % 2 == 0</li>
+<li>if 语句中条件表达式后面必须写的符号是 ________。<br>答案：冒号“:”</li>
+<li>range(1, 10, 2) 生成的整数依次是 ________。<br>答案：1, 3, 5, 7, 9</li>
+<li>for i in range(________): 可以使循环体正好执行 5 次。<br>答案：5</li>
+<li>要输出 1~100 之间的所有整数，循环头应写作 for i in range(________)。<br>答案：1, 101</li>
+<li>求 1+2+…+10 的和，请填空：
+<pre>s = 0
+for i in range(1, 11):
+    s = ________
+print(s)</pre>
+答案：s + i</li>
+<li>输出 1~5 每个数的平方，请填空：
+<pre>for i in range(1, 6):
+    print(________)</pre>
+答案：i ** 2（或 i * i）</li>
+<li>统计 1~100 中能被 3 整除的数的个数，请填空：
+<pre>count = 0
+for i in range(1, 101):
+    if ________:
+        count = count + 1
+print(count)</pre>
+答案：i % 3 == 0</li>
+<li>输入成绩并判断等级，请填空：
+<pre>score = int(input())
+if score &gt;= 90:
+    print("优秀")
+________ score &gt;= 60:
+    print("及格")
+else:
+    print("不及格")</pre>
+答案：elif</li>
+<li>循环中用来提前结束整个循环的关键字是 ________。<br>答案：break</li>
+<li>结束本次循环、直接进入下一次循环的关键字是 ________。<br>答案：continue</li>
+<li>导入 random 库的语句是 ________。<br>答案：import random</li>
+<li>只导入 random 库中 randint 函数的语句是 ________。<br>答案：from random import randint</li>
+<li>已执行 import random，生成 1~100 随机整数的表达式是 ________。<br>答案：random.randint(1, 100)</li>
+<li>下面程序的功能是：
+<pre>import random
+a = random.randint(1, 6)
+b = random.randint(1, 6)
+print(a + b)</pre>
+该程序的功能是 ________。<br>答案：模拟掷两个骰子并输出点数之和</li>
+<li>已知 a = [1, 2, 3, 4]，则 a[2] 的值是 ________。<br>答案：3</li>
+<li>已知 d = {"name": "小明", "age": 15}，则 d["age"] 的值是 ________。<br>答案：15</li>
+<li>求列表中所有元素的和，请填空：
+<pre>a = [1, 2, 3, 4, 5]
+s = 0
+for i in a:
+    s = s + ________
+print(s)</pre>
+答案：i</li>
+<li>下面程序共输出 ________ 行：
+<pre>for i in range(1, 4):
+    for j in range(1, 4):
+        print(i, j)</pre>
+答案：9</li>
+<li>输出 1~10 中的所有奇数，请填空：
+<pre>for i in range(1, 11):
+    if i % 2 == ________:
+        print(i)</pre>
+答案：1</li>
+<li>判断闰年，请填空：
+<pre>year = int(input())
+if (year % 4 == 0 and year % 100 != 0) ________ year % 400 == 0:
+    print("闰年")
+else:
+    print("平年")</pre>
+答案：or</li>
+<li>输入两个数，输出其中较大的一个，请填空：
+<pre>a = int(input())
+b = int(input())
+if a &gt; b:
+    print(a)
+________:
+    print(b)</pre>
+答案：else</li>
+</ol>
+
+<hr>
+<p>—— 试卷结束 ——</p>
+
+</body>
+</html>
