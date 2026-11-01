@@ -55,3 +55,13 @@ impl IntoResponse for AppError {
         (self.status, Json(self.body())).into_response()
     }
 }
+
+impl From<sqlx::Error> for AppError {
+    fn from(e: sqlx::Error) -> Self {
+        AppError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "DB",
+            format!("数据库错误：{e}"),
+        )
+    }
+}

@@ -163,3 +163,79 @@ pub async fn teacher_session_expires(
     .fetch_optional(pool)
     .await
 }
+
+#[derive(Debug, Clone)]
+pub struct StudentSessionRow {
+    pub student_id: String,
+    pub task_id: String,
+    pub client_id: String,
+    pub expires_at: String,
+}
+
+pub async fn insert_student_session(
+    pool: &SqlitePool,
+    token_hash: &str,
+    student_id: &str,
+    task_id: &str,
+    client_id: &str,
+    expires_at: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO sessions(token_hash, role, student_id, task_id, client_id, expires_at) VALUES(?, 'student', ?, ?, ?, ?)",
+    )
+    .bind(token_hash)
+    .bind(student_id)
+    .bind(task_id)
+    .bind(client_id)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn delete_student_sessions(
+    pool: &SqlitePool,
+    student_id: &str,
+    task_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM sessions WHERE role = 'student' AND student_id = ? AND task_id = ?")
+        .bind(student_id)
+        .bind(task_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub async fn student_session(
+    pool: &SqlitePool,
+    token_hash: &str,
+) -> Result<Option<StudentSessionRow>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT student_id, task_id, client_id, expires_at FROM sessions WHERE token_hash = ? AND role = 'student'",
+    )
+    .bind(token_hash)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| {
+        use sqlx::Row;
+        StudentSessionRow {
+            student_id: r.get("student_id"),
+            task_id: r.get("task_id"),
+            client_id: r.get("client_id"),
+            expires_at: r.get("expires_at"),
+        }
+    }))
+}
+
+pub async fn expire_student_sessions_for_task(
+    pool: &SqlitePool,
+    task_id: &str,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE sessions SET expires_at = '1970-01-01T00:00:00Z' WHERE role = 'student' AND task_id = ?",
+    )
+    .bind(task_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}

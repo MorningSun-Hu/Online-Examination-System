@@ -17,7 +17,7 @@ pub struct OptionItem {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", content = "value")]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub enum Answer {
     Single(String),
     Multiple(Vec<String>),
@@ -43,7 +43,7 @@ pub struct BankDoc {
     pub questions: Vec<Question>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ImportFailure {
     pub index: usize,
     pub reason: String,

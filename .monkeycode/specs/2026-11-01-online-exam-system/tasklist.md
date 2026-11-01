@@ -75,132 +75,132 @@
     - 教师接入页展示非回环 IPv4
     - 对应 requirements.md Requirement 8 AC6
 
-- [ ] 8. 实现题库管理 API
-  - [ ] 8.1 实现题库与题目的创建、编辑、列表
+- [x] 8. 实现题库管理 API
+  - [x] 8.1 实现题库与题目的创建、编辑、列表
     - 对应 requirements.md Requirement 1 AC1-AC3
-  - [ ] 8.2 实现删除保护
+  - [x] 8.2 实现删除保护
     - 已被已发布任务试卷快照引用的题目返回 409
     - 对应 requirements.md Requirement 1 AC4
-  - [ ] 8.3 实现 HTML 导入与导出接口
+  - [x] 8.3 实现 HTML 导入与导出接口
     - `POST /api/teacher/banks/{id}/import-html`、`GET /api/teacher/banks/{id}/export-html`
     - 对应 requirements.md Requirement 2、Requirement 3
 
-- [ ] 9. 实现学生名册 API
-  - [ ] 9.1 实现 CSV 导入
+- [x] 9. 实现学生名册 API
+  - [x] 9.1 实现 CSV 导入
     - 表头必须含班级、学号、姓名；缺列或缺必填跳过坏行并出报告；同学号后行覆盖
     - 对应 requirements.md Requirement 4 AC1-AC3
-  - [ ] 9.2 实现任务名单选择
+  - [x] 9.2 实现任务名单选择
     - 仅允许从已导入名册加入考试任务
     - 对应 requirements.md Requirement 4 AC4
 
-- [ ] 10. 检查点 - 教师基础 API 可用
+- [x] 10. 检查点 - 教师基础 API 可用
   - 确保所有测试通过,如有疑问请询问用户
 
-- [ ] 11. 实现考试任务、发布、监控与收卷
-  - [ ] 11.1 实现任务创建（考试/练习、时长、提前交卷、组卷规则）
+- [x] 11. 实现考试任务、发布、监控与收卷
+  - [x] 11.1 实现任务创建（考试/练习、时长、提前交卷、组卷规则）
     - 调用 paper-gen 固化 `score_plan_json`；题量不足保持草稿并返回 409
     - 对应 requirements.md Requirement 5、Requirement 6、Requirement 7 AC1
-  - [ ] 11.2 实现发布与状态机
+  - [x] 11.2 实现发布与状态机
     - 草稿 → 已发布，写入 `published_at`/`closes_at`
     - 对应 requirements.md Requirement 7 AC2-AC3
-  - [ ] 11.3 实现监控、提前交卷开关与收卷
+  - [x] 11.3 实现监控、提前交卷开关与收卷
     - 名单状态：未进入/作答中/已提交；收卷把未提交转为提交；开关立即作用于未提交会话
     - 对应 requirements.md Requirement 16 AC1-AC3、Requirement 7 AC4
 
-- [ ] 12. 实现学生进入与试卷下发
-  - [ ] 12.1 实现学生匹配进入
+- [x] 12. 实现学生进入与试卷下发
+  - [x] 12.1 实现学生匹配进入
     - `POST /api/student/enter`：班级必填，姓名或学号至少一项；0 人 403；同班重名 409；学号姓名冲突 403
     - 对应 requirements.md Requirement 8 AC1-AC5；design.md 学生匹配算法
-  - [ ] 12.2 实现试卷快照下发
+  - [x] 12.2 实现试卷快照下发
     - 考试中途重进复用快照；响应省略参考答案与得分
     - 对应 requirements.md Requirement 5 AC5、Requirement 9 AC1
-  - [ ] 12.3 为学生匹配与答案剥离编写单元测试
+  - [x] 12.3 为学生匹配与答案剥离编写单元测试
     - 对应 requirements.md Requirement 8、Requirement 9 AC1
-  - [ ] 12.4 属性测试：考试模式在公开前学生接口不含答案字段
+  - [x] 12.4 属性测试：考试模式在公开前学生接口不含答案字段
     - 检查 design.md Correctness Properties 答案隔离
     - 对应 requirements.md Requirement 9 AC1、Requirement 13 AC4
 
-- [ ] 13. 实现作答、保存、提交与练习反馈
-  - [ ] 13.1 实现答案保存
+- [x] 13. 实现作答、保存、提交与练习反馈
+  - [x] 13.1 实现答案保存
     - `PUT /api/student/answers`，未提交状态保存间隔由服务端接受，前端按 15 秒调用
     - 对应 requirements.md Requirement 11 AC1-AC2
-  - [ ] 13.2 实现考试模式提交
+  - [x] 13.2 实现考试模式提交
     - 允许提前交卷才可主动提交；禁止时 403；已提交 409；到时用已保存内容生成提交
     - 对应 requirements.md Requirement 9 AC2-AC6
-  - [ ] 13.3 实现练习模式提交与再次作答
+  - [x] 13.3 实现练习模式提交与再次作答
     - 提交后立即返回得分、对错、参考答案；再次进入生成新快照
     - 对应 requirements.md Requirement 10 AC1-AC3
-  - [ ] 13.4 属性测试：同一考试任务每名学生至多一份已提交记录
+  - [x] 13.4 属性测试：同一考试任务每名学生至多一份已提交记录
     - 检查 design.md Correctness Properties 考试一次提交
     - 对应 requirements.md Requirement 9 AC6
 
-- [ ] 14. 检查点 - 作答闭环可用
+- [x] 14. 检查点 - 作答闭环可用
   - 确保所有测试通过,如有疑问请询问用户
 
-- [ ] 15. 实现批改、人工给分与公开回发
-  - [ ] 15.1 提交时自动批改客观题
+- [x] 15. 实现批改、人工给分与公开回发
+  - [x] 15.1 提交时自动批改客观题
     - 累计客观分；编程题待人工；教师确认后任务进入已批改
     - 对应 requirements.md Requirement 12 AC1-AC6
-  - [ ] 15.2 实现编程题人工给分
+  - [x] 15.2 实现编程题人工给分
     - `PUT /api/teacher/attempts/{id}/code-scores`，分数为 0 到该题满分的整数
     - 对应 requirements.md Requirement 12 AC5
-  - [ ] 15.3 实现公开试卷与回发
+  - [x] 15.3 实现公开试卷与回发
     - 在线按 `client_id` 投递；离线归档到 `student_id`，下次学生匹配后领取
     - 对应 requirements.md Requirement 13 AC1-AC4
-  - [ ] 15.4 属性测试：公开时在线按 client_id、离线按 student_id 领取
+  - [x] 15.4 属性测试：公开时在线按 client_id、离线按 student_id 领取
     - 检查 design.md Correctness Properties 回发路由
     - 对应 requirements.md Requirement 13 AC2-AC3
 
-- [ ] 16. 实现成绩导出与分析
-  - [ ] 16.1 实现成绩列表接口
+- [x] 16. 实现成绩导出与分析
+  - [x] 16.1 实现成绩列表接口
     - 学号、姓名、总分、提交时间、客户端标识、各题得分
     - 对应 requirements.md Requirement 14 AC1
-  - [ ] 16.2 实现 UTF-8 BOM CSV 导出
+  - [x] 16.2 实现 UTF-8 BOM CSV 导出
     - 列含学号、姓名、班级、总分、各题得分、提交时间
     - 对应 requirements.md Requirement 14 AC2
-  - [ ] 16.3 实现分析接口
+  - [x] 16.3 实现分析接口
     - 平均/最高/最低/中位数、及格率（默认满分 60% 可改）、逐题正确率、题型得分率、五段分布
     - 对应 requirements.md Requirement 14 AC3-AC5
 
-- [ ] 17. 实现教师网页
-  - [ ] 17.1 配置 Vite 双入口、allowedHosts 与 `/api` 反代
+- [x] 17. 实现教师网页
+  - [x] 17.1 配置 Vite 双入口、allowedHosts 与 `/api` 反代
     - `server.allowedHosts` 含 `.monkeycode-ai.online`；`/api` 代理到 `http://127.0.0.1:8080`
     - 对应 design.md Components `web`、前端反代约定
-  - [ ] 17.2 实现登录、设口令、接入地址页
+  - [x] 17.2 实现登录、设口令、接入地址页
     - 对应 requirements.md Requirement 15、Requirement 8 AC6
-  - [ ] 17.3 实现题库、题目编辑、HTML 导入报告与导出
+  - [x] 17.3 实现题库、题目编辑、HTML 导入报告与导出
     - 对应 requirements.md Requirement 1、Requirement 2、Requirement 3
-  - [ ] 17.4 实现学生名册导入与任务名单
+  - [x] 17.4 实现学生名册导入与任务名单
     - 对应 requirements.md Requirement 4
-  - [ ] 17.5 实现组卷规则、分值确认表、任务发布与监控收卷
+  - [x] 17.5 实现组卷规则、分值确认表、任务发布与监控收卷
     - 对应 requirements.md Requirement 5、Requirement 6、Requirement 7、Requirement 16
-  - [ ] 17.6 实现批改给分、公开试卷、成绩与分析页
+  - [x] 17.6 实现批改给分、公开试卷、成绩与分析页
     - 对应 requirements.md Requirement 12、Requirement 13、Requirement 14
 
-- [ ] 18. 实现学生网页
-  - [ ] 18.1 实现进入页（班级 + 姓名或学号）与 client_id
+- [x] 18. 实现学生网页
+  - [x] 18.1 实现进入页（班级 + 姓名或学号）与 client_id
     - `localStorage` 保存客户端标识；展示匹配错误提示
     - 对应 requirements.md Requirement 8
-  - [ ] 18.2 实现考试作答页
+  - [x] 18.2 实现考试作答页
     - 隐藏答案与分数；按提前交卷开关显示提交；15 秒保存答案
     - 对应 requirements.md Requirement 9、Requirement 11
-  - [ ] 18.3 实现已提交态与练习立即反馈
+  - [x] 18.3 实现已提交态与练习立即反馈
     - 考试只显示已提交；练习显示得分、对错、参考答案并允许再练
     - 对应 requirements.md Requirement 9 AC5、Requirement 10
-  - [ ] 18.4 实现已公开试卷领取与展示
+  - [x] 18.4 实现已公开试卷领取与展示
     - 当场会话在线接收；历史用学生匹配后展示批改详情
     - 对应 requirements.md Requirement 13
 
-- [ ] 19. 实现进程内静态资源与启动脚本
-  - [ ] 19.1 让 exam-server 托管 `/teacher/*` 与 `/student/*`
+- [x] 19. 实现进程内静态资源与启动脚本
+  - [x] 19.1 让 exam-server 托管 `/teacher/*` 与 `/student/*`
     - 发布构建使用 `web/dist` 或可执行文件旁 `web/`
     - 对应 design.md Architecture
-  - [ ] 19.2 编写 Windows 启动批处理
+  - [x] 19.2 编写 Windows 启动批处理
     - `scripts/start-teacher.bat` 使用 CRLF，用 `goto` 分支，不写仓库级 `.cargo/config.toml`
     - 对应 design.md 仓库目录规划、MEMORY 构建约定
-  - [ ] 19.3 编写 Linux 启动脚本
+  - [x] 19.3 编写 Linux 启动脚本
     - `scripts/start-teacher.sh` 启动后端；开发模式配合 `web` 的 Vite
     - 对应 design.md 仓库目录规划
 
-- [ ] 20. 检查点 - 教室闭环可演示
+- [x] 20. 检查点 - 教室闭环可演示
   - 确保所有测试通过,如有疑问请询问用户
