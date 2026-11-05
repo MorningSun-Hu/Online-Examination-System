@@ -6,12 +6,14 @@ pub mod lan;
 pub mod banks;
 pub mod students;
 pub mod paper;
+pub mod papers;
 pub mod tasks;
 pub mod student;
 pub mod results;
 
 use axum::middleware;
 use axum::routing::{get, post, put};
+use axum::routing::patch;
 use axum::Router;
 use sqlx::SqlitePool;
 
@@ -48,10 +50,39 @@ pub fn app(state: AppState) -> Router {
             "/api/teacher/banks/{id}/export-html",
             get(banks::export_html),
         )
-        .route("/api/teacher/students", get(students::list_students))
+        .route("/api/teacher/students", get(students::list_students).post(students::create_student))
         .route(
             "/api/teacher/students/import-csv",
             post(students::import_csv),
+        )
+        .route(
+            "/api/teacher/students/{id}",
+            patch(students::update_student).delete(students::delete_student),
+        )
+        .route("/api/teacher/students.csv", get(students::export_students))
+        .route(
+            "/api/teacher/student-template.csv",
+            get(students::students_template),
+        )
+        .route(
+            "/api/teacher/classes",
+            get(students::list_classes).post(students::create_class),
+        )
+        .route(
+            "/api/teacher/classes/{id}",
+            patch(students::rename_class).delete(students::delete_class),
+        )
+        .route(
+            "/api/teacher/papers",
+            get(papers::list_papers).post(papers::create_paper),
+        )
+        .route(
+            "/api/teacher/papers/{id}",
+            get(papers::get_paper).patch(papers::patch_paper).delete(papers::delete_paper),
+        )
+        .route(
+            "/api/teacher/papers/{id}/preview",
+            get(papers::preview_paper),
         )
         .route(
             "/api/teacher/tasks/{id}/roster",
@@ -60,8 +91,9 @@ pub fn app(state: AppState) -> Router {
         .route("/api/teacher/tasks", get(tasks::list_tasks).post(tasks::create_task))
         .route(
             "/api/teacher/tasks/{id}",
-            get(tasks::get_task).patch(tasks::patch_task),
+            get(tasks::get_task).patch(tasks::patch_task).delete(tasks::delete_task),
         )
+        .route("/api/teacher/tasks/{id}/split", post(tasks::split_by_class))
         .route("/api/teacher/tasks/{id}/publish", post(tasks::publish))
         .route("/api/teacher/tasks/{id}/close", post(tasks::close))
         .route("/api/teacher/tasks/{id}/grade", post(tasks::confirm_grade))
@@ -92,11 +124,17 @@ pub fn app(state: AppState) -> Router {
         .route("/api/teacher/setup", post(auth::setup))
         .route("/api/teacher/login", post(auth::login))
         .route("/api/student/enter", post(student::enter))
+        .route("/api/student/brief", get(student::brief))
+        .route("/api/student/lookup", get(student::lookup))
         .merge(protected)
         .merge(student_ok)
         .with_state(state);
     if let Some(dir) = find_web_dir() {
         router
+            .route(
+                "/",
+                get(|| async { axum::response::Redirect::temporary("/teacher.html") }),
+            )
             .route(
                 "/teacher",
                 get(|| async { axum::response::Redirect::temporary("/teacher.html") }),

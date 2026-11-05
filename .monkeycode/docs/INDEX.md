@@ -1,0 +1,43 @@
+# 教室在线考试系统文档
+
+教室局域网在线考试：教师机跑唯一 Rust 进程，同时提供讲台网页、学生网页和 REST API。数据在本地 SQLite。客观题自动批改，编程题本阶段人工给分。
+
+**目标用户**
+
+- 教师：维护题库、班级名册、试卷模板、考试任务、监考、批改、成绩分析
+- 学生：用浏览器进入答卷入口，作答、续答、领取已公开试卷
+
+**当前落地**
+
+- 讲台五模块：题库管理、班级名册、试卷管理、任务管理、成绩分析
+- 试卷与任务分离：先组卷调分，任务引用试卷；草稿可按班拆分子任务
+- 成绩分析：左历史任务、右数据大屏；题目分析按大题汇总正确率/得分率/均分
+- 学生公开后可看试卷分析；选择题列出选项，并标出你的选择与正确答案
+- 历史任务详情保留答卷入口
+
+## 文档导航
+
+- [架构设计](./ARCHITECTURE.md)
+- [接口定义](./INTERFACES.md)
+- [开发指南](./DEVELOPER_GUIDE.md)
+
+## 专有概念
+
+- [试卷模板与快照](./专有概念/试卷模板与快照.md)
+- [学生匹配](./专有概念/学生匹配.md)
+- [分值方案](./专有概念/分值方案.md)
+- [任务状态](./专有概念/任务状态.md)
+
+## 模块
+
+- [exam-server](./模块/exam-server.md)
+- [bank-html](./模块/bank-html.md)
+- [paper-gen](./模块/paper-gen.md)
+- [grading](./模块/grading.md)
+- [web](./模块/web.md)
+
+## 规格
+
+- 需求：`.monkeycode/specs/2026-11-01-online-exam-system/requirements.md`
+- 设计：`.monkeycode/specs/2026-11-01-online-exam-system/design.md`
+- 任务：`.monkeycode/specs/2026-11-01-online-exam-system/tasklist.md`

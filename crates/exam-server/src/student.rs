@@ -1,4 +1,5 @@
 use axum::extract::{Extension, Request, State};
+use axum::extract::Query;
 use axum::http::{header, StatusCode};
 use axum::middleware::Next;
 use axum::response::Response;
@@ -28,7 +29,7 @@ pub struct StudentCtx {
 
 #[derive(Deserialize)]
 pub struct EnterBody {
-    pub class_name: String,
+    pub class_name: Option<String>,
     pub name: Option<String>,
     pub student_no: Option<String>,
     pub client_id: String,
@@ -104,9 +105,6 @@ pub async fn enter(
     State(state): State<AppState>,
     Json(body): Json<EnterBody>,
 ) -> Result<Json<Value>, AppError> {
-    if body.class_name.trim().is_empty() {
-        return Err(AppError::new(StatusCode::BAD_REQUEST, "BAD_REQUEST", "班级必填"));
-    }
     let name = body.name.as_deref().map(str::trim).filter(|s| !s.is_empty());
     let no = body
         .student_no
@@ -136,7 +134,22 @@ pub async fn enter(
             ))
         }
     }
-    let student_id = match_student(&state, &task_id, &body.class_name, name, no).await?;
+    if let Some(start) = task.starts_at.as_deref().and_then(parse_rfc3339) {
+        if start > Utc::now() {
+            return Err(AppError::new(
+                StatusCode::FORBIDDEN,
+                "NOT_STARTED",
+                "考试尚未开始",
+            ));
+        }
+    }
+    let class = body
+        .class_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let student_id = match_student(&state, &task_id, class, name, no).await?;
+    let profile = student_profile(&state, &student_id).await?;
     let (paper_id, attempt_id, items, blob, attempt_no, status) =
         ensure_paper(&state, &task, &student_id, &body.client_id).await?;
     db::delete_student_sessions(&state.pool, &student_id, &task_id)
@@ -165,11 +178,17 @@ pub async fn enter(
         "attempt_no": attempt_no,
         "status": status,
         "mode": task.mode,
+        "title": task.title,
         "allow_early_submit": task.allow_early_submit,
         "closes_at": task.closes_at,
         "items": student_items(&items, hide_points),
         "answers": blob.items,
         "released": task.status == "released",
+        "duration_minutes": task.duration_minutes,
+        "total_score": task.total_score,
+        "class_name": profile.0,
+        "name": profile.1,
+        "student_no": profile.2,
     })))
 }
 
@@ -185,27 +204,134 @@ async fn resolve_task(state: &AppState, given: Option<&str>) -> Result<String, A
     id.ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "NOT_FOUND", "当前没有已发布任务"))
 }
 
+async fn candidate_students(
+    state: &AppState,
+    task_id: &str,
+) -> Result<Vec<sqlx::sqlite::SqliteRow>, AppError> {
+    let roster_n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_roster WHERE task_id = ?")
+        .bind(task_id)
+        .fetch_one(&state.pool)
+        .await?;
+    if roster_n == 0 {
+        Ok(sqlx::query("SELECT id, student_no, name, class_name FROM students")
+            .fetch_all(&state.pool)
+            .await?)
+    } else {
+        Ok(sqlx::query(
+            r#"SELECT s.id, s.student_no, s.name, s.class_name
+               FROM task_roster r JOIN students s ON s.id = r.student_id
+               WHERE r.task_id = ?"#,
+        )
+        .bind(task_id)
+        .fetch_all(&state.pool)
+        .await?)
+    }
+}
+
+async fn student_profile(
+    state: &AppState,
+    id: &str,
+) -> Result<(String, String, String), AppError> {
+    let row = sqlx::query("SELECT class_name, name, student_no FROM students WHERE id = ?")
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "NOT_FOUND", "学生不存在"))?;
+    Ok((row.get("class_name"), row.get("name"), row.get("student_no")))
+}
+
+#[derive(Deserialize)]
+pub struct BriefQuery {
+    pub task_id: Option<String>,
+    pub t: Option<String>,
+}
+
+pub async fn brief(
+    State(state): State<AppState>,
+    Query(q): Query<BriefQuery>,
+) -> Result<Json<Value>, AppError> {
+    let given = q.task_id.as_deref().or(q.t.as_deref());
+    let task_id = resolve_task(&state, given).await?;
+    maybe_auto_close(&state, &task_id).await?;
+    let task = load_task(&state, &task_id).await?;
+    let rows = candidate_students(&state, &task_id).await?;
+    let mut classes: Vec<String> = rows
+        .iter()
+        .map(|r| r.get::<String, _>("class_name"))
+        .collect();
+    classes.sort();
+    classes.dedup();
+    Ok(Json(json!({
+        "task_id": task.id,
+        "title": task.title,
+        "mode": task.mode,
+        "status": task.status,
+        "duration_minutes": task.duration_minutes,
+        "total_score": task.total_score,
+        "pass_score": task.pass_score,
+        "closes_at": task.closes_at,
+        "starts_at": task.starts_at,
+        "classes": classes,
+        "single_class": classes.len() == 1,
+    })))
+}
+
+#[derive(Deserialize)]
+pub struct LookupQuery {
+    pub task_id: Option<String>,
+    pub t: Option<String>,
+    pub class_name: Option<String>,
+    pub name: Option<String>,
+    pub student_no: Option<String>,
+}
+
+pub async fn lookup(
+    State(state): State<AppState>,
+    Query(q): Query<LookupQuery>,
+) -> Result<Json<Value>, AppError> {
+    let given = q.task_id.as_deref().or(q.t.as_deref());
+    let task_id = resolve_task(&state, given).await?;
+    let name = q.name.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let no = q
+        .student_no
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    if name.is_none() && no.is_none() {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "姓名或学号至少填一项",
+        ));
+    }
+    let class = q
+        .class_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let id = match_student(&state, &task_id, class, name, no).await?;
+    let profile = student_profile(&state, &id).await?;
+    Ok(Json(json!({
+        "student_id": id,
+        "class_name": profile.0,
+        "name": profile.1,
+        "student_no": profile.2,
+    })))
+}
+
 async fn match_student(
     state: &AppState,
     task_id: &str,
-    class_name: &str,
+    class_name: Option<&str>,
     name: Option<&str>,
     student_no: Option<&str>,
 ) -> Result<String, AppError> {
-    let rows = sqlx::query(
-        r#"SELECT s.id, s.student_no, s.name, s.class_name
-           FROM task_roster r JOIN students s ON s.id = r.student_id
-           WHERE r.task_id = ?"#,
-    )
-    .bind(task_id)
-    .fetch_all(&state.pool)
-    .await?;
-    let class = class_name.trim();
+    let rows = candidate_students(state, task_id).await?;
     if let Some(no) = student_no {
         let hits: Vec<_> = rows
             .iter()
             .filter(|r| {
-                r.get::<String, _>("class_name") == class && r.get::<String, _>("student_no") == no
+                r.get::<String, _>("student_no") == no
             })
             .collect();
         if hits.is_empty() {
@@ -216,6 +342,15 @@ async fn match_student(
             ));
         }
         let row = hits[0];
+        if let Some(c) = class_name {
+            if row.get::<String, _>("class_name") != c {
+                return Err(AppError::new(
+                    StatusCode::FORBIDDEN,
+                    "CLASS_MISMATCH",
+                    "班级与学号不匹配",
+                ));
+            }
+        }
         if let Some(n) = name {
             if row.get::<String, _>("name") != n {
                 return Err(AppError::new(
@@ -230,7 +365,13 @@ async fn match_student(
     let n = name.unwrap();
     let hits: Vec<_> = rows
         .iter()
-        .filter(|r| r.get::<String, _>("class_name") == class && r.get::<String, _>("name") == n)
+        .filter(|r| {
+            let name_ok = r.get::<String, _>("name") == n;
+            let class_ok = class_name
+                .map(|c| r.get::<String, _>("class_name") == c)
+                .unwrap_or(true);
+            name_ok && class_ok
+        })
         .collect();
     match hits.len() {
         0 => Err(AppError::new(
@@ -242,7 +383,7 @@ async fn match_student(
         _ => Err(AppError::new(
             StatusCode::CONFLICT,
             "DUPLICATE_NAME",
-            "同班重名，请改填学号",
+            "存在重名，请改填学号",
         )),
     }
 }
@@ -381,16 +522,24 @@ pub async fn paper(
 ) -> Result<Json<Value>, AppError> {
     let (task, attempt_id, items, blob, status) = load_current(&state, &ctx).await?;
     let hide_points = task.mode == "exam" && task.status != "released";
+    let profile = student_profile(&state, &ctx.student_id).await?;
     Ok(Json(json!({
         "attempt_id": attempt_id,
         "status": status,
         "mode": task.mode,
+        "title": task.title,
+        "task_id": task.id,
         "allow_early_submit": task.allow_early_submit,
         "closes_at": task.closes_at,
         "task_status": task.status,
         "items": student_items(&items, hide_points),
         "answers": blob.items,
         "released": task.status == "released",
+        "duration_minutes": task.duration_minutes,
+        "total_score": task.total_score,
+        "class_name": profile.0,
+        "name": profile.1,
+        "student_no": profile.2,
     })))
 }
 

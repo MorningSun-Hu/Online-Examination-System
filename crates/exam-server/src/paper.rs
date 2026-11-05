@@ -5,6 +5,7 @@ use chrono::{DateTime, Utc};
 use grading::{grade, StudentResponse};
 use paper_gen::{allocate_scores, generate, restore_original_keys, GenError, PaperRule, TYPE_ORDER};
 use rand::rngs::StdRng;
+use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -81,6 +82,18 @@ pub struct TaskRow {
     pub pass_score: i64,
     pub published_at: Option<String>,
     pub closes_at: Option<String>,
+    pub paper_id: Option<String>,
+    pub parent_id: Option<String>,
+    pub starts_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct BankDraw {
+    pub bank_id: String,
+    #[serde(default)]
+    pub count: Option<usize>,
+    #[serde(default)]
+    pub ratio: Option<f64>,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +104,7 @@ pub struct RuleRow {
     pub shuffle_options: bool,
     pub type_subtotals: Option<HashMap<QType, u32>>,
     pub score_plan: Option<HashMap<QType, Vec<u32>>>,
+    pub bank_draws: Vec<BankDraw>,
 }
 
 pub fn parse_qtype_map<T: Clone>(raw: &HashMap<String, T>) -> HashMap<QType, T> {
@@ -99,6 +113,10 @@ pub fn parse_qtype_map<T: Clone>(raw: &HashMap<String, T>) -> HashMap<QType, T> 
         out.insert(parse_qtype(k), v.clone());
     }
     out
+}
+
+pub fn parse_bank_draws(raw: Option<String>) -> Vec<BankDraw> {
+    raw.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default()
 }
 
 pub fn qtype_map_to_json<T: Serialize>(m: &HashMap<QType, T>) -> Value {
@@ -116,7 +134,7 @@ pub fn qtype_map_to_json<T: Serialize>(m: &HashMap<QType, T>) -> Value {
 
 pub async fn load_task(state: &AppState, id: &str) -> Result<TaskRow, AppError> {
     let row = sqlx::query(
-        r#"SELECT id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, published_at, closes_at
+        r#"SELECT id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, published_at, closes_at, paper_id, parent_id, starts_at
            FROM exam_tasks WHERE id = ?"#,
     )
     .bind(id)
@@ -138,12 +156,15 @@ pub fn task_from_row(row: sqlx::sqlite::SqliteRow) -> TaskRow {
         pass_score: row.get("pass_score"),
         published_at: row.get("published_at"),
         closes_at: row.get("closes_at"),
+        paper_id: row.try_get("paper_id").ok().flatten(),
+        parent_id: row.try_get("parent_id").ok().flatten(),
+        starts_at: row.try_get("starts_at").ok().flatten(),
     }
 }
 
 pub async fn load_rule(state: &AppState, task_id: &str) -> Result<RuleRow, AppError> {
     let row = sqlx::query(
-        r#"SELECT bank_ids_json, type_counts_json, shuffle_within_section, shuffle_options, type_subtotals_json, score_plan_json
+        r#"SELECT bank_ids_json, type_counts_json, shuffle_within_section, shuffle_options, type_subtotals_json, score_plan_json, bank_draws_json
            FROM paper_rules WHERE task_id = ?"#,
     )
     .bind(task_id)
@@ -167,18 +188,20 @@ pub async fn load_rule(state: &AppState, task_id: &str) -> Result<RuleRow, AppEr
         shuffle_options: row.get::<i64, _>("shuffle_options") != 0,
         type_subtotals: subtotals.as_ref().map(parse_qtype_map),
         score_plan: plan.as_ref().map(parse_qtype_map),
+        bank_draws: parse_bank_draws(row.try_get::<Option<String>, _>("bank_draws_json").ok().flatten()),
     })
 }
 
 pub async fn load_bank_questions(
     state: &AppState,
     bank_ids: &[String],
-) -> Result<Vec<(String, Question)>, AppError> {
+) -> Result<Vec<(String, String, Question)>, AppError> {
     let mut out = Vec::new();
     for bid in bank_ids {
         for q in load_questions(state, bid).await? {
             out.push((
                 q.id,
+                bid.clone(),
                 Question {
                     qtype: q.qtype,
                     stem: q.stem,
@@ -226,13 +249,87 @@ pub fn compute_score_plan(rule: &RuleRow, total_score: u32) -> Result<HashMap<QT
     Ok(grouped)
 }
 
-pub fn check_pool(pool: &[(String, Question)], rule: &RuleRow) -> Result<(), AppError> {
+pub fn resolve_bank_counts(rule: &RuleRow) -> Result<HashMap<String, usize>, AppError> {
+    if rule.bank_draws.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let total: usize = rule.type_counts.values().copied().sum();
+    if total == 0 {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "请填写至少一种题型的题量",
+        ));
+    }
+    let all_ratio = rule
+        .bank_draws
+        .iter()
+        .all(|d| d.count.unwrap_or(0) == 0 && d.ratio.unwrap_or(0.0) > 0.0);
+    let mut out: HashMap<String, usize> = HashMap::new();
+    if all_ratio {
+        let parts: Vec<(String, f64)> = rule
+            .bank_draws
+            .iter()
+            .map(|d| (d.bank_id.clone(), d.ratio.unwrap_or(0.0).max(0.0)))
+            .collect();
+        let rsum: f64 = parts.iter().map(|(_, r)| *r).sum();
+        if rsum <= 0.0 {
+            return Err(AppError::new(
+                StatusCode::BAD_REQUEST,
+                "BAD_REQUEST",
+                "题库抽题比例之和必须大于 0",
+            ));
+        }
+        let mut assigned = 0usize;
+        let mut remainders: Vec<(String, f64)> = Vec::new();
+        for (id, r) in &parts {
+            let exact = (*r / rsum) * total as f64;
+            let n = exact.floor() as usize;
+            out.insert(id.clone(), n);
+            assigned += n;
+            remainders.push((id.clone(), exact - n as f64));
+        }
+        remainders.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let mut left = total.saturating_sub(assigned);
+        for (id, _) in remainders {
+            if left == 0 {
+                break;
+            }
+            *out.get_mut(&id).unwrap() += 1;
+            left -= 1;
+        }
+        return Ok(out);
+    }
+    for d in &rule.bank_draws {
+        let n = if let Some(c) = d.count.filter(|c| *c > 0) {
+            c
+        } else if let Some(r) = d.ratio.filter(|r| *r > 0.0) {
+            ((r / 100.0) * total as f64).round() as usize
+        } else {
+            0
+        };
+        if n > 0 {
+            out.insert(d.bank_id.clone(), n);
+        }
+    }
+    let sum: usize = out.values().copied().sum();
+    if sum != total {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            format!("各题库抽题数之和必须等于各题型题量之和（当前 {sum}，需要 {total}）"),
+        ));
+    }
+    Ok(out)
+}
+
+pub fn check_pool(pool: &[(String, String, Question)], rule: &RuleRow) -> Result<(), AppError> {
     for qtype in TYPE_ORDER {
         let need = rule.type_counts.get(&qtype).copied().unwrap_or(0);
         if need == 0 {
             continue;
         }
-        let available = pool.iter().filter(|(_, q)| q.qtype == qtype).count();
+        let available = pool.iter().filter(|(_, _, q)| q.qtype == qtype).count();
         if available < need {
             return Err(AppError::new(
                 StatusCode::CONFLICT,
@@ -246,16 +343,86 @@ pub fn check_pool(pool: &[(String, Question)], rule: &RuleRow) -> Result<(), App
             })));
         }
     }
+    let quotas = resolve_bank_counts(rule)?;
+    for (bid, need) in &quotas {
+        let available = pool.iter().filter(|(_, b, _)| b == bid).count();
+        if available < *need {
+            return Err(AppError::new(
+                StatusCode::CONFLICT,
+                "NOT_ENOUGH",
+                format!("题库 {bid} 现有 {available} 题，抽题规则要求 {need} 题"),
+            )
+            .with_details(json!({
+                "bank_id": bid,
+                "available": available,
+                "required": need,
+            })));
+        }
+    }
     Ok(())
 }
 
+fn pick_with_quotas(
+    pool: &[(String, String, Question)],
+    rule: &RuleRow,
+    quotas: &HashMap<String, usize>,
+) -> Result<Vec<usize>, AppError> {
+    let mut quota = quotas.clone();
+    let mut rng = StdRng::from_entropy();
+    let mut picked = Vec::new();
+    for qtype in TYPE_ORDER {
+        let need = rule.type_counts.get(&qtype).copied().unwrap_or(0);
+        if need == 0 {
+            continue;
+        }
+        let mut candidates: Vec<usize> = pool
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, bid, q))| q.qtype == qtype && quota.get(bid).copied().unwrap_or(0) > 0)
+            .map(|(i, _)| i)
+            .collect();
+        candidates.shuffle(&mut rng);
+        let mut got = 0usize;
+        for i in candidates {
+            if got == need {
+                break;
+            }
+            let bid = &pool[i].1;
+            let left = quota.get_mut(bid).unwrap();
+            if *left == 0 {
+                continue;
+            }
+            *left -= 1;
+            picked.push(i);
+            got += 1;
+        }
+        if got < need {
+            return Err(AppError::new(
+                StatusCode::CONFLICT,
+                "NOT_ENOUGH",
+                format!("{qtype:?} 在各题库配额下只能抽到 {got} 题，规则要求 {need} 题"),
+            ));
+        }
+    }
+    Ok(picked)
+}
+
 pub fn generate_snapshot(
-    pool: &[(String, Question)],
+    pool: &[(String, String, Question)],
     rule: &RuleRow,
     total_score: u32,
 ) -> Result<Vec<SnapshotItem>, AppError> {
     check_pool(pool, rule)?;
-    let questions: Vec<Question> = pool.iter().map(|(_, q)| q.clone()).collect();
+    let quotas = resolve_bank_counts(rule)?;
+    let chosen: Vec<&(String, String, Question)> = if quotas.is_empty() {
+        pool.iter().collect()
+    } else {
+        pick_with_quotas(pool, rule, &quotas)?
+            .into_iter()
+            .map(|i| &pool[i])
+            .collect()
+    };
+    let questions: Vec<Question> = chosen.iter().map(|(_, _, q)| q.clone()).collect();
     let snap = generate(
         &questions,
         &to_paper_rule(rule, total_score),
@@ -263,8 +430,17 @@ pub fn generate_snapshot(
     )
     .map_err(gen_err)?;
     let mut items = Vec::new();
+    let mut type_cursor: HashMap<QType, usize> = HashMap::new();
     for it in snap.items {
-        let (id, q) = &pool[it.source_index];
+        let (id, _, q) = chosen[it.source_index];
+        let points = if let Some(plan) = &rule.score_plan {
+            let i = type_cursor.entry(it.qtype).or_insert(0);
+            let pts = plan.get(&it.qtype).and_then(|v| v.get(*i)).copied();
+            *i += 1;
+            pts.unwrap_or(it.points)
+        } else {
+            it.points
+        };
         items.push(SnapshotItem {
             question_id: id.clone(),
             qtype: it.qtype,
@@ -272,7 +448,7 @@ pub fn generate_snapshot(
             stem_html: q.stem_html.clone(),
             options: it.options,
             option_map: it.option_map,
-            points: it.points,
+            points,
             answer: q.answer.clone(),
         });
     }

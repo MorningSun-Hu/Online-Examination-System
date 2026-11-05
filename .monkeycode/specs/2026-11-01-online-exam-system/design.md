@@ -1,7 +1,7 @@
 # 教室在线考试系统
 
 Feature Name: online-exam-system
-Updated: 2026-11-01
+Updated: 2026-11-05
 
 ## Description
 
@@ -81,6 +81,8 @@ Axum + Tokio。默认监听 `0.0.0.0:8080`。发布构建把 `web/dist` 嵌进�
 Vite + TypeScript。教师端与学生端同一仓库、两个入口，避免两套构建链。开发服务器配置 `allowedHosts: ['.monkeycode-ai.online']`，并将 `/api` 代理到 `http://127.0.0.1:8080`。
 
 教师页主要界面：题库、题目编辑、HTML 导入报告、学生名册、组卷规则、任务监控、批改、成绩与分析。
+
+讲台五模块：题库管理、班级名册、试卷管理、任务管理、成绩分析。组卷结果落在 `exam_papers`；任务引用 `paper_id`。分值在试卷预览内联调整。任务分当前/历史；历史任务详情仍显示答卷入口。成绩分析左历史任务、右数据大屏。
 
 学生页主要界面：班级加姓名或学号进入、作答、已提交、练习反馈、已公开试卷。
 
@@ -172,6 +174,33 @@ SQLite，外键开启。时间戳存 UTC RFC3339。金额式分值为整数（�
 | published_at | TEXT | |
 | closes_at | TEXT | 发布时刻 + 时长 |
 
+启动后用 `ensure_column` 补列：`paper_id`（引用 `exam_papers`）、`parent_id`（按班拆分的父任务）、`starts_at`。
+
+### classes
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | TEXT PK | |
+| name | TEXT UNIQUE | 班级名 |
+
+### exam_papers
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | TEXT PK | |
+| title | TEXT | |
+| bank_ids_json | TEXT | |
+| type_counts_json | TEXT | |
+| shuffle_within_section | INTEGER | |
+| shuffle_options | INTEGER | |
+| type_subtotals_json | TEXT | 可空 |
+| score_plan_json | TEXT | 题型到每题分值数组 |
+| bank_draws_json | TEXT | 按库抽题数/比例 |
+| total_score | INTEGER | |
+| pass_score | INTEGER | |
+| created_at | TEXT | |
+| updated_at | TEXT | |
+
 ### paper_rules
 
 | 字段 | 类型 | 说明 |
@@ -183,6 +212,7 @@ SQLite，外键开启。时间戳存 UTC RFC3339。金额式分值为整数（�
 | shuffle_options | INTEGER | |
 | type_subtotals_json | TEXT | 可空 |
 | score_plan_json | TEXT | 调分后每题型每题分值 |
+| bank_draws_json | TEXT | 按库抽题配额，可空 |
 
 ### task_roster
 
@@ -304,12 +334,12 @@ SQLite，外键开启。时间戳存 UTC RFC3339。金额式分值为整数（�
 
 设总分 `T`，启用题型集合 `I`，题型 `i` 题量 `n_i`，全卷题量 `N = sum n_i`。
 
-1. 若教师给出题型小计 `S_i` 且 `sum S_i == T`：对每个题型，`q = S_i / n_i` 取整，`r = S_i % n_i`，该题型前 `r` 小题为 `q+1`，其余为 `q`。
+1. 若教师给出题型小计 `S_i` 且 `sum S_i == T`：对每个题型，`q = S_i / n_i` 取整，`r = S_i % n_i`，该题型最后 `r` 小题为 `q+1`，其余为 `q`。
 2. 若给出 `S_i` 但 `sum S_i != T`：令 `S'_i = round(T * S_i / sum S_j)`，再把 `sum S'_i` 与 `T` 的差从题型列表头部逐项加减 1，然后执行步骤 1。
 3. 若未给出 `S_i`：等价于把 `T` 按 `N` 做步骤 1 的余数分配，分配顺序为题型顺序 × 题号顺序。
 4. 若某题分值被调成 0：从分值最高的一题借 1 分，保证每题至少 1 分；若 `T < N`，拒绝保存规则并提示总分必须大于等于题量。
 
-教师确认分值表后，`score_plan_json` 固化，已生成快照不再回溯修改。
+教师在试卷预览确认或修改分值后，`exam_papers.score_plan_json` 固化。任务复制该方案；已生成学生快照不再回溯修改。
 
 ## 查漏补缺（已纳入本阶段）
 
@@ -352,37 +382,26 @@ SQLite，外键开启。时间戳存 UTC RFC3339。金额式分值为整数（�
 
 ## API 草稿
 
-教师：
+完整路由见 `.monkeycode/docs/INTERFACES.md`。此处列与初稿相比新增的关键接口：
 
-- `POST /api/teacher/login`
-- `POST /api/teacher/banks` `POST /api/teacher/banks/{id}/import-html` `GET /api/teacher/banks/{id}/export-html`
-- `POST /api/teacher/students/import-csv`
-- `POST /api/teacher/tasks` `POST /api/teacher/tasks/{id}/publish` `POST /api/teacher/tasks/{id}/close` `POST /api/teacher/tasks/{id}/release`
-- `PATCH /api/teacher/tasks/{id}` 修改 `allow_early_submit`
-- `PUT /api/teacher/attempts/{id}/code-scores`
-- `GET /api/teacher/tasks/{id}/monitor`
-- `GET /api/teacher/tasks/{id}/results.csv`
-- `GET /api/teacher/tasks/{id}/analysis`
-
-学生：
-
-- `POST /api/student/enter` 体：class_name 必填，name 与 student_no 至少一项，client_id，task_id（可省略则进入当前已发布任务）
-- `GET /api/student/paper`
-- `PUT /api/student/answers` 自动保存
-- `POST /api/student/submit`
-- `GET /api/student/result` 练习立即返回；考试仅 `released` 后返回
+- 班级：`/api/teacher/classes`
+- 试卷模板：`/api/teacher/papers`、`GET/PATCH /api/teacher/papers/{id}`、`GET .../preview`
+- 任务名单：`GET/PUT /api/teacher/tasks/{id}/roster`（PUT 成功 200 JSON）
+- 按班拆分：`POST /api/teacher/tasks/{id}/split`
+- 学生摘要/互查：`GET /api/student/brief`、`GET /api/student/lookup`
+- 进入：`class_name` 可空；`name` 与 `student_no` 至少一项；空名单回落全库
 
 ## References
 
 [^1]: (Filename) - 题库格式化规范缓存 `.monkeycode-tmp-files/42a8f00a-题库规范化格式-1.html`
 [^2]: (Spec) - 需求文档 `.monkeycode/specs/2026-11-01-online-exam-system/requirements.md`
 
-已确认决策：编程题本阶段仅人工给分；部署形态为教室局域网单教师机；学生进入采用班级 +（姓名或学号）匹配。
+已确认决策：编程题本阶段仅人工给分；部署形态为教室局域网单教师机；学生进入采用班级（可空）加姓名或学号匹配。
 
 ## 学生匹配算法
 
-输入：`class_name`（必填），`name` 与 `student_no` 至少一项。匹配范围：当前任务 `task_roster` 对应的学生行。
+输入：`name` 与 `student_no` 至少一项，`class_name` 可空。匹配范围：`task_roster` 有人则用名单，空名单回落全库 `students`。
 
-1. 若提供 `student_no`：在名单中查找 `class_name + student_no`。零条则失败；一条则命中。若同时提供 `name` 且与该行姓名不同，失败。
-2. 若未提供 `student_no`、仅提供 `name`：在名单中查找 `class_name + name`。零条则失败；一条则命中；两条及以上则失败并要求改填学号。
+1. 若提供 `student_no`：按学号命中。若同时提供班级或姓名，必须与该行一致。
+2. 若未提供学号、仅提供姓名：按姓名命中，可选再过滤班级。零条失败；一条命中；两条及以上要求改填学号。
 3. 命中后建立会话，后续答卷、续答、公开试卷领取都绑定该 `student_id`。

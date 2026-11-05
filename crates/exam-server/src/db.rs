@@ -2,6 +2,7 @@ use std::path::Path;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use sqlx::Row;
 
 const SCHEMA: &[&str] = &[
     r#"CREATE TABLE IF NOT EXISTS banks (
@@ -93,6 +94,24 @@ const SCHEMA: &[&str] = &[
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL
     )"#,
+    r#"CREATE TABLE IF NOT EXISTS classes (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL UNIQUE
+    )"#,
+    r#"CREATE TABLE IF NOT EXISTS exam_papers (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        bank_ids_json TEXT NOT NULL,
+        type_counts_json TEXT NOT NULL,
+        shuffle_within_section INTEGER NOT NULL DEFAULT 1,
+        shuffle_options INTEGER NOT NULL DEFAULT 1,
+        type_subtotals_json TEXT,
+        score_plan_json TEXT,
+        total_score INTEGER NOT NULL,
+        pass_score INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    )"#,
 ];
 
 pub async fn open_pool(db_path: &Path) -> Result<SqlitePool, sqlx::Error> {
@@ -115,6 +134,32 @@ pub async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::Error> {
         .await?;
     for stmt in SCHEMA {
         sqlx::query(stmt).execute(pool).await?;
+    }
+    ensure_column(pool, "exam_tasks", "paper_id", "TEXT").await?;
+    ensure_column(pool, "exam_tasks", "parent_id", "TEXT").await?;
+    ensure_column(pool, "exam_tasks", "starts_at", "TEXT").await?;
+    ensure_column(pool, "exam_papers", "bank_draws_json", "TEXT").await?;
+    ensure_column(pool, "paper_rules", "bank_draws_json", "TEXT").await?;
+    Ok(())
+}
+
+async fn ensure_column(
+    pool: &SqlitePool,
+    table: &str,
+    column: &str,
+    decl: &str,
+) -> Result<(), sqlx::Error> {
+    let sql = format!("PRAGMA table_info({table})");
+    let rows = sqlx::query(&sql).fetch_all(pool).await?;
+    let exists = rows.iter().any(|r| {
+        r.try_get::<String, _>("name")
+            .ok()
+            .map(|n| n == column)
+            .unwrap_or(false)
+    });
+    if !exists {
+        let alter = format!("ALTER TABLE {table} ADD COLUMN {column} {decl}");
+        sqlx::query(&alter).execute(pool).await?;
     }
     Ok(())
 }

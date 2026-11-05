@@ -207,7 +207,8 @@ pub fn allocate_scores(rule: &PaperRule, picked: &[(QType, usize)]) -> Result<Ve
         let q = s / c as u32;
         let r = s % c as u32;
         let mut pts = vec![q; c];
-        for item in pts.iter_mut().take(r as usize) {
+        let start = c.saturating_sub(r as usize);
+        for item in pts.iter_mut().skip(start) {
             *item += 1;
         }
         per_type.insert(qtype, pts);

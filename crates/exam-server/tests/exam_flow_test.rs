@@ -530,3 +530,298 @@ async fn practice_resit_and_offline_release() {
     assert_eq!(v2["attempt_no"], 2);
     assert_ne!(v2["items"], paper1);
 }
+
+#[tokio::test]
+async fn split_deletes_parent_keeps_children() {
+    let h = harness().await;
+    let bank_id = seed_bank(&h).await;
+    let csv = "班级,学号,姓名\n一班,101,甲\n二班,201,乙\n";
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "POST",
+            "/api/teacher/students/import-csv",
+            &h.token,
+            Body::from(json!({"csv": csv}).to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, v) = call(
+        &h.app,
+        auth("GET", "/api/teacher/students", &h.token, Body::empty()),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let ids: Vec<String> = v["students"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|s| s["id"].as_str().unwrap().to_string())
+        .collect();
+    let parent_id = create_ok_task(&h, &bank_id, &ids, "exam", false).await;
+
+    let (st, split) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{parent_id}/split"),
+            &h.token,
+            Body::from("{}".to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{split}");
+    let children = split["tasks"].as_array().unwrap();
+    assert_eq!(children.len(), 2);
+    let child_ids: Vec<String> = children
+        .iter()
+        .map(|c| c["id"].as_str().unwrap().to_string())
+        .collect();
+
+    for child in children {
+        let cid = child["id"].as_str().unwrap();
+        let class = child["class_name"].as_str().unwrap();
+        let (st, roster) = call(
+            &h.app,
+            auth(
+                "GET",
+                &format!("/api/teacher/tasks/{cid}/roster"),
+                &h.token,
+                Body::empty(),
+            ),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{roster}");
+        let people = roster["students"].as_array().unwrap();
+        assert_eq!(people.len(), 1);
+        assert_eq!(people[0]["class_name"], class);
+    }
+
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/tasks/{parent_id}"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NOT_FOUND);
+
+    for cid in &child_ids {
+        let (st, child) = call(
+            &h.app,
+            auth(
+                "GET",
+                &format!("/api/teacher/tasks/{cid}"),
+                &h.token,
+                Body::empty(),
+            ),
+        )
+        .await;
+        assert_eq!(st, StatusCode::OK, "{child}");
+        assert_eq!(child["parent_id"], Value::Null);
+        assert_eq!(child["status"], "draft");
+    }
+
+    let published = create_ok_task(&h, &bank_id, &ids, "exam", false).await;
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{published}/publish"),
+            &h.token,
+            Body::from("{}".to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, v) = call(
+        &h.app,
+        auth(
+            "PUT",
+            &format!("/api/teacher/tasks/{published}/roster"),
+            &h.token,
+            Body::from(json!({ "student_ids": ids }).to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    assert_eq!(v["error"]["code"], "BAD_STATE");
+    let (st, v) = call(
+        &h.app,
+        auth(
+            "DELETE",
+            &format!("/api/teacher/tasks/{published}"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CONFLICT);
+    assert_eq!(v["error"]["code"], "BAD_STATE");
+}
+
+#[tokio::test]
+async fn paper_preview_returns_drawn_questions() {
+    let h = harness().await;
+    let bank_id = seed_bank(&h).await;
+    let (st, v) = call(
+        &h.app,
+        auth(
+            "POST",
+            "/api/teacher/papers",
+            &h.token,
+            Body::from(
+                json!({
+                    "title": "预览卷",
+                    "total_score": 10,
+                    "rule": {
+                        "bank_ids": [bank_id],
+                        "type_counts": {"single": 2, "judge": 1},
+                        "shuffle_within_section": true,
+                        "shuffle_options": true
+                    }
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    let id = v["id"].as_str().unwrap();
+    let (st, preview) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/papers/{id}/preview"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{preview}");
+    let qs = preview["questions"].as_array().unwrap();
+    assert_eq!(qs.len(), 3);
+    assert!(qs.iter().any(|q| q["qtype"] == "single"));
+    assert!(qs.iter().any(|q| q["qtype"] == "judge"));
+    assert!(qs[0].get("answer").is_some());
+}
+
+#[tokio::test]
+async fn patch_score_plan_updates_total() {
+    let h = harness().await;
+    let bank_id = seed_bank(&h).await;
+    let ids = seed_students(&h).await;
+    let task_id = create_ok_task(&h, &bank_id, &ids, "exam", false).await;
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "PATCH",
+            &format!("/api/teacher/tasks/{task_id}"),
+            &h.token,
+            Body::from(
+                json!({
+                    "score_plan": { "single": [5, 4], "judge": [3] },
+                    "pass_score": 7
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (st, v) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/tasks/{task_id}"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["total_score"], 12);
+    assert_eq!(v["pass_score"], 7);
+    assert_eq!(v["score_plan"]["single"], json!([5, 4]));
+    assert_eq!(v["score_plan"]["judge"], json!([3]));
+}
+
+#[tokio::test]
+async fn patch_paper_score_plan_updates_total() {
+    let h = harness().await;
+    let bank_id = seed_bank(&h).await;
+    let (st, v) = call(
+        &h.app,
+        auth(
+            "POST",
+            "/api/teacher/papers",
+            &h.token,
+            Body::from(
+                json!({
+                    "title": "分值卷",
+                    "total_score": 10,
+                    "rule": {
+                        "bank_ids": [bank_id],
+                        "type_counts": {"single": 2, "judge": 1},
+                        "shuffle_within_section": false,
+                        "shuffle_options": false
+                    }
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    let id = v["id"].as_str().unwrap();
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "PATCH",
+            &format!("/api/teacher/papers/{id}"),
+            &h.token,
+            Body::from(
+                json!({
+                    "score_plan": { "single": [5, 4], "judge": [3] }
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (st, v) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/papers/{id}"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{v}");
+    assert_eq!(v["total_score"], 12);
+    assert_eq!(v["score_plan"]["single"], json!([5, 4]));
+    assert_eq!(v["score_plan"]["judge"], json!([3]));
+    let (st, preview) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/papers/{id}/preview"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{preview}");
+    let qs = preview["questions"].as_array().unwrap();
+    let singles: Vec<_> = qs.iter().filter(|q| q["qtype"] == "single").collect();
+    assert_eq!(singles.len(), 2);
+    assert_eq!(singles[0]["points"], 5);
+    assert_eq!(singles[1]["points"], 4);
+}

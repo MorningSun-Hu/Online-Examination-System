@@ -136,6 +136,45 @@ async fn import_csv_rejects_missing_header_columns() {
 }
 
 #[tokio::test]
+async fn import_csv_accepts_tab_paste_without_header() {
+    let h = harness().await;
+    let csv = "高一1班\t2024001\t张三\n高一1班\t2024002\t李四\n";
+    let res = h
+        .app
+        .oneshot(auth_req(
+            "POST",
+            "/api/teacher/students/import-csv",
+            &h.token,
+            Body::from(json!({"csv": csv}).to_string()),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let report = json_body(res).await;
+    assert_eq!(report["upserted"], 2);
+    assert_eq!(report["failed"], 0);
+}
+
+#[tokio::test]
+async fn import_csv_accepts_fullwidth_comma_header() {
+    let h = harness().await;
+    let csv = "班级，学号，姓名\n二班，2024003，王五\n";
+    let res = h
+        .app
+        .oneshot(auth_req(
+            "POST",
+            "/api/teacher/students/import-csv",
+            &h.token,
+            Body::from(json!({"csv": csv}).to_string()),
+        ))
+        .await
+        .unwrap();
+    assert_eq!(res.status(), StatusCode::OK);
+    let report = json_body(res).await;
+    assert_eq!(report["upserted"], 1);
+}
+
+#[tokio::test]
 async fn roster_only_allows_imported_students() {
     let h = harness().await;
     insert_draft_task(&h.pool, "t1").await;
