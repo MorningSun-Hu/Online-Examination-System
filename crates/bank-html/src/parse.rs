@@ -297,8 +297,6 @@ fn split_fill_answers(text: &str) -> Vec<String> {
             let cleaned = sub
                 .replace('（', " ")
                 .replace('）', " ")
-                .replace('(', " ")
-                .replace(')', " ")
                 .replace('“', "")
                 .replace('”', "");
             let v = normalize_text(&cleaned);

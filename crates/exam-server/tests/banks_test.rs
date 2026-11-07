@@ -212,6 +212,10 @@ async fn import_export_and_partial() {
     let exported = String::from_utf8(exported.to_vec()).unwrap();
     assert!(exported.contains("lang=\"zh-CN\""));
     assert!(exported.contains("class=\"question\""));
+    assert!(exported.contains("SimSun"));
+    assert!(exported.contains("SimHei"));
+    assert!(exported.contains("-webkit-font-smoothing: antialiased"));
+    assert!(exported.contains("第1题"));
     let again = bank_html::parse_html(&exported, "out.html").unwrap();
     assert_eq!(again.success.len(), 5);
 

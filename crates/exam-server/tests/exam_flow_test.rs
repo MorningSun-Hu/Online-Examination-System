@@ -1280,7 +1280,7 @@ async fn teacher_view_paper_and_custom_analysis() {
         &h.app,
         auth(
             "GET",
-            &format!("/api/teacher/tasks/{task_id}/analysis?pass_score=999&good_score=8&excellent_score=9&bands=1,2,3,4&top_pct=100&bottom_pct=100"),
+            &format!("/api/teacher/tasks/{task_id}/analysis?pass_score=999&good_score=8&excellent_score=9&bands=1,2,3,4,5&top_pct=100&bottom_pct=100"),
             &h.token,
             Body::empty(),
         ),
@@ -1294,6 +1294,7 @@ async fn teacher_view_paper_and_custom_analysis() {
     assert_eq!(ana["top_students"].as_array().unwrap().len(), 1);
     assert_eq!(ana["bands"]["cuts"][0], 1);
     assert_eq!(ana["bands"]["cuts"][3], 4);
+    assert_eq!(ana["bands"]["cuts"][4], 5);
     assert!(ana["submit_rate"].as_f64().unwrap() > 0.0);
     assert!(ana.get("excellent_only").is_some());
     assert!(ana.get("cv").is_some());

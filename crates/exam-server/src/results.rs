@@ -157,24 +157,27 @@ fn pct_cut(total: i64, p: f64) -> i64 {
     ((total.max(1) as f64) * p).ceil() as i64
 }
 
-fn parse_band_cuts(raw: Option<&str>, total: i64) -> [i64; 4] {
+fn parse_band_cuts(raw: Option<&str>, total: i64) -> [i64; 5] {
     let mut cuts = [
         pct_cut(total, 0.6),
         pct_cut(total, 0.7),
         pct_cut(total, 0.8),
         pct_cut(total, 0.9),
+        pct_cut(total, 0.95),
     ];
     if let Some(s) = raw.map(str::trim).filter(|x| !x.is_empty()) {
         let parts: Vec<i64> = s
             .split(',')
             .filter_map(|p| p.trim().parse().ok())
             .collect();
-        if parts.len() == 4 {
-            cuts = [parts[0], parts[1], parts[2], parts[3]];
+        if parts.len() >= 5 {
+            cuts = [parts[0], parts[1], parts[2], parts[3], parts[4]];
+        } else if parts.len() == 4 {
+            cuts = [parts[0], parts[1], parts[2], parts[3], pct_cut(total, 0.95)];
         }
     }
     cuts.sort();
-    for i in 1..4 {
+    for i in 1..5 {
         if cuts[i] <= cuts[i - 1] {
             cuts[i] = cuts[i - 1] + 1;
         }
@@ -182,27 +185,23 @@ fn parse_band_cuts(raw: Option<&str>, total: i64) -> [i64; 4] {
     cuts
 }
 
-fn band_index(score: i64, cuts: &[i64; 4]) -> usize {
-    if score < cuts[0] {
-        0
-    } else if score < cuts[1] {
-        1
-    } else if score < cuts[2] {
-        2
-    } else if score < cuts[3] {
-        3
-    } else {
-        4
+fn band_index(score: i64, cuts: &[i64; 5]) -> usize {
+    for (i, cut) in cuts.iter().enumerate() {
+        if score < *cut {
+            return i;
+        }
     }
+    cuts.len()
 }
 
-fn band_labels(cuts: &[i64; 4]) -> [String; 5] {
+fn band_labels(cuts: &[i64; 5]) -> [String; 6] {
     [
         format!("<{}", cuts[0]),
         format!("{}-{}", cuts[0], cuts[1].saturating_sub(1)),
         format!("{}-{}", cuts[1], cuts[2].saturating_sub(1)),
         format!("{}-{}", cuts[2], cuts[3].saturating_sub(1)),
-        format!("≥{}", cuts[3]),
+        format!("{}-{}", cuts[3], cuts[4].saturating_sub(1)),
+        format!("≥{}", cuts[4]),
     ]
 }
 
@@ -293,7 +292,7 @@ pub async fn analysis(
     let good = scores.iter().filter(|s| **s >= good_cut).count();
     let full_mark = scores.iter().filter(|s| **s >= task.total_score).count();
     let failed = scores.iter().filter(|s| **s < pass).count();
-    let mut bands = [0u32; 5];
+    let mut bands = [0u32; 6];
     for s in &scores {
         bands[band_index(*s, &cuts)] += 1;
     }
@@ -492,7 +491,8 @@ pub async fn analysis(
             "60_70": bands[1],
             "70_80": bands[2],
             "80_90": bands[3],
-            "90_100": bands[4],
+            "90_95": bands[4],
+            "95_100": bands[5],
         }
     });
     if let Value::Object(obj) = &mut body {

@@ -12,6 +12,8 @@ body {
     margin: 2em auto;
     padding: 0 1em;
     background: #fff;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
 }
 h1, h2, h3, strong {
     font-family: "SimHei", "Microsoft YaHei", "PingFang SC", sans-serif;
@@ -22,13 +24,21 @@ h2 { font-size: 1.2em; margin-top: 2.2em; border-bottom: 1px solid #000; padding
 h3 { font-size: 1.05em; margin-top: 1.5em; }
 pre {
     font-family: "Courier New", monospace;
+    background: none;
     border: 1px solid #000;
     padding: 0.5em;
     white-space: pre-wrap;
 }
+.question p, .options {
+    font-family: "SimSun", "Songti SC", serif;
+}
 .question { margin: 0.8em 0; }
 .options { margin: 0.2em 0 0.2em 1.5em; }
-.answer { margin: 0.2em 0 0.8em 1.5em; font-weight: bold; }
+.answer {
+    margin: 0.2em 0 0.8em 1.5em;
+    font-family: "SimHei", "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-weight: bold;
+}
 .check-mark { font-family: "Segoe UI Symbol", "Arial Unicode MS", "DejaVu Sans", Arial, sans-serif; font-weight: normal; }
 "#;
 
@@ -73,23 +83,11 @@ pub fn pretty_print(title: &str, questions: &[Question]) -> String {
 
 fn format_question(n: usize, q: &Question) -> String {
     let mut s = String::from("\n<div class=\"question\">\n");
-    if q.stem_html.trim().is_empty() {
-        s.push_str("    <p>第");
-        s.push_str(&n.to_string());
-        s.push_str("题 ");
-        s.push_str(&escape(&q.stem));
-        s.push_str("</p>\n");
-    } else if q.stem_html.contains('<') {
-        s.push_str("    ");
-        s.push_str(&q.stem_html);
-        s.push('\n');
-    } else {
-        s.push_str("    <p>第");
-        s.push_str(&n.to_string());
-        s.push_str("题 ");
-        s.push_str(&escape(&q.stem));
-        s.push_str("</p>\n");
-    }
+    s.push_str("    <p>第");
+    s.push_str(&n.to_string());
+    s.push_str("题 ");
+    s.push_str(&escape(&q.stem));
+    s.push_str("</p>\n");
     if !q.options.is_empty() {
         s.push_str("    <div class=\"options\">");
         let parts: Vec<String> = q

@@ -79,6 +79,28 @@ fn default_filename() -> String {
     "upload.html".into()
 }
 
+fn content_disposition(name: &str) -> axum::http::HeaderValue {
+    let safe: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            _ => c,
+        })
+        .collect();
+    let file = format!("{safe}.html");
+    let mut encoded = String::new();
+    for b in file.as_bytes() {
+        match *b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' => encoded.push(*b as char),
+            _ => encoded.push_str(&format!("%{b:02X}")),
+        }
+    }
+    let value = format!("attachment; filename=\"bank.html\"; filename*=UTF-8''{encoded}");
+    value
+        .parse()
+        .unwrap_or_else(|_| "attachment; filename=\"bank.html\"".parse().unwrap())
+}
+
 #[derive(Serialize)]
 pub struct ImportResult {
     pub imported: usize,
@@ -350,6 +372,7 @@ pub async fn export_html(
         header::CONTENT_TYPE,
         "text/html; charset=utf-8".parse().unwrap(),
     );
+    headers.insert(header::CONTENT_DISPOSITION, content_disposition(&name));
     Ok((headers, html))
 }
 

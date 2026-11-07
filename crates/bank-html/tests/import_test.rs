@@ -25,6 +25,10 @@ fn parse_spec_sample() {
     assert_eq!(report.success[2].qtype, QType::Judge);
     assert_eq!(report.success[2].answer, Answer::Judge(false));
     assert_eq!(report.success[3].qtype, QType::Fill);
+    assert_eq!(
+        report.success[3].answer,
+        Answer::Fill(vec!["len()".into(), "len".into()])
+    );
     assert_eq!(report.success[4].qtype, QType::Code);
 }
 
@@ -67,6 +71,33 @@ fn parse_python_basics_200() {
     assert_eq!(singles, 150);
     assert_eq!(judges, 20);
     assert_eq!(fills, 30);
+}
+
+#[test]
+fn fill_keeps_ascii_parentheses() {
+    let html = read("python-basics-200.html");
+    let report = parse_html(&html, "python-basics-200.html").expect("parse");
+    let q = report
+        .success
+        .iter()
+        .find(|q| q.stem.contains("1~100 随机整数"))
+        .expect("randint fill");
+    assert_eq!(
+        q.answer,
+        Answer::Fill(vec!["random.randint(1, 100)".into()])
+    );
+    let hello = report
+        .success
+        .iter()
+        .find(|q| q.stem.contains("输出 Hello"))
+        .expect("print fill");
+    assert_eq!(hello.answer, Answer::Fill(vec!["print(\"Hello\")".into()]));
+    let flt = report
+        .success
+        .iter()
+        .find(|q| q.stem.contains("3.14"))
+        .expect("float fill");
+    assert_eq!(flt.answer, Answer::Fill(vec!["float(\"3.14\")".into()]));
 }
 
 #[test]

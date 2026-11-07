@@ -1197,7 +1197,7 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
       analysisExcellent = val("excellent_score");
       analysisTopPct = val("top_pct");
       analysisBottomPct = val("bottom_pct");
-      const cuts = [val("band1"), val("band2"), val("band3"), val("band4")];
+      const cuts = [val("band1"), val("band2"), val("band3"), val("band4"), val("band5")];
       analysisBands = cuts.every((x) => x) ? cuts.join(",") : "";
       const r = await tcall(`/api/teacher/tasks/${taskId}/analysis${analysisQuery()}`);
       analysis = r.status === 200 ? r.data : analysis;
@@ -1335,14 +1335,9 @@ async function act(kind: string, id?: string): Promise<void> {
     await downloadAuth("/api/teacher/students.csv", "students.csv");
     return;
   } else if (kind === "export") {
-    const res = await fetch(`/api/teacher/banks/${id}/export-html`, {
-      headers: { authorization: `Bearer ${token}` },
-    });
-    const blob = await res.blob();
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "bank.html";
-    a.click();
+    const row = banks.find((b) => String(b.id) === id);
+    const name = String(row?.name || "题库").replace(/[\\/:*?"<>|]/g, "_");
+    await downloadAuth(`/api/teacher/banks/${id}/export-html`, `${name}.html`);
     return;
   } else if (kind === "csv") {
     const res = await fetch(`/api/teacher/tasks/${id}/results.csv`, {
@@ -2413,10 +2408,11 @@ function gradeBoardHtml(): string {
     "60_70"?: number;
     "70_80"?: number;
     "80_90"?: number;
-    "90_100"?: number;
+    "90_95"?: number;
+    "95_100"?: number;
   }) || {};
-  const cuts = (analysisBands ? analysisBands.split(",") : (bandInfo.cuts || []).map(String)).slice(0, 4);
-  while (cuts.length < 4) {
+  const cuts = (analysisBands ? analysisBands.split(",") : (bandInfo.cuts || []).map(String)).slice(0, 5);
+  while (cuts.length < 5) {
     cuts.push("");
   }
   const bandItems: Array<[string, number]> =
@@ -2427,7 +2423,8 @@ function gradeBoardHtml(): string {
           ["60-70", Number(bandInfo["60_70"] || 0)],
           ["70-80", Number(bandInfo["70_80"] || 0)],
           ["80-90", Number(bandInfo["80_90"] || 0)],
-          ["90-100", Number(bandInfo["90_100"] || 0)],
+          ["90-95", Number(bandInfo["90_95"] || 0)],
+          ["95-100", Number(bandInfo["95_100"] || 0)],
         ];
   const qn = Number(a.question_count ?? ((a.questions as Array<Record<string, unknown>>) || []).length);
   const types = ((a.type_rates as Array<Record<string, unknown>>) || []).map(
@@ -2450,6 +2447,7 @@ function gradeBoardHtml(): string {
         <input name="band2" type="number" value="${esc(cuts[1])}" />
         <input name="band3" type="number" value="${esc(cuts[2])}" />
         <input name="band4" type="number" value="${esc(cuts[3])}" />
+        <input name="band5" type="number" value="${esc(cuts[4])}" />
       </span></label>
       <button type="submit">重算分析</button>
     </form>

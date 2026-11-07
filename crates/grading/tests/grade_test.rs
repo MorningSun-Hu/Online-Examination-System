@@ -74,3 +74,24 @@ fn fill_alternatives() {
     );
     assert_eq!(out.awarded, Some(3));
 }
+
+#[test]
+fn fill_keeps_function_call_parens() {
+    let ans = Answer::Fill(vec!["random.randint(1, 100)".into()]);
+    let ok = grade(
+        QType::Fill,
+        &ans,
+        &StudentResponse::Fill("random.randint(1, 100)".into()),
+        2,
+        None,
+    );
+    assert_eq!(ok.awarded, Some(2));
+    let miss = grade(
+        QType::Fill,
+        &ans,
+        &StudentResponse::Fill("random.randint 1, 100".into()),
+        2,
+        None,
+    );
+    assert_eq!(miss.awarded, Some(0));
+}

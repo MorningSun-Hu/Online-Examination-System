@@ -778,12 +778,12 @@ details.fold[open] > summary {
   flex: 0 0 96px;
 }
 .field.band-field {
-  min-width: 220px;
-  flex: 1 1 240px;
+  min-width: 280px;
+  flex: 1 1 320px;
 }
 .band-cuts {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 6px;
 }
 .analysis-form {
