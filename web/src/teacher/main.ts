@@ -1400,7 +1400,7 @@ function fillQuestionForm(): void {
 
 function gateHtml(): string {
   return `<div class="gate">
-    <div class="kicker">Teacher Deck</div>
+    <div class="kicker">控制室</div>
     <h1>讲台口令</h1>
     <p class="hint">第一次进入会把口令写进本机数据库，之后用同一口令解锁。</p>
     <form name="gate">
@@ -2466,10 +2466,10 @@ function gradeBoardHtml(): string {
     <div class="charts">
       ${vbarChartHtml("分数段人数", bandItems)}
       ${donutChartHtml("成绩构成", [
-        ["优秀", Number(a.excellent_only || 0), "#1f7a55"],
-        ["良好", Number(a.good_only || 0), "#4c9a6e"],
-        ["及格", Number(a.pass_only || 0), "#c9842a"],
-        ["不及格", Number(a.failed || 0), "#b42318"],
+        ["优秀", Number(a.excellent_only || 0), "#1c7c5a"],
+        ["良好", Number(a.good_only || 0), "#1b8f86"],
+        ["及格", Number(a.pass_only || 0), "#c56a1a"],
+        ["不及格", Number(a.failed || 0), "#c4453c"],
       ])}
       ${hbarChartHtml("题型得分率", types, "questions")}
       ${hbarChartHtml("班级及格率", classes, "students")}
@@ -2671,8 +2671,8 @@ function render(): void {
   root.innerHTML = `<div class="shell">
     <aside class="rail">
       <div>
-        <div class="kicker">Classroom</div>
-        <div class="brand-name">讲台控制台</div>
+        <div class="kicker">控制室</div>
+        <div class="brand-name">讲台</div>
         <div class="brand-sub">局域网考场</div>
       </div>
       ${navHtml()}

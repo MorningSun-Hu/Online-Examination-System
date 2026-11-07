@@ -401,13 +401,13 @@ function resultHtml(): string {
     result?.mode === "practice"
       ? `<button class="ghost" id="retry" type="button">再练一套</button>`
       : "";
-  return `<div class="sheet">
+  return hallFrame(`<div class="sheet">
     <div class="stamp">已批改</div>
     <h1>${esc(result?.title || paper?.title || "成绩回发")}</h1>
     <p class="meta">总分 ${esc(result?.total_score)} · 客观 ${esc(result?.objective_score)}</p>
     ${rows}
     ${retry}
-  </div>`;
+  </div>`);
 }
 
 function profile(): { class_name?: string; name?: string; student_no?: string } {
@@ -504,6 +504,18 @@ async function trySubmit(): Promise<void> {
   await autoSubmit();
 }
 
+function hallFrame(inner: string, title = "教室考试"): string {
+  return `<div class="hall">
+    <header class="bar">
+      <div>
+        <strong>${esc(title)}</strong>
+        <div class="save">局域网考场</div>
+      </div>
+    </header>
+    ${inner}
+  </div>`;
+}
+
 function render(): void {
   if (saveTimer) {
     window.clearInterval(saveTimer);
@@ -517,12 +529,12 @@ function render(): void {
     const open = brief?.status === "published" || brief?.status === "released";
     if (brief && !open) {
       const pending = brief.status === "draft";
-      root.innerHTML = `<div class="sheet">
+      root.innerHTML = hallFrame(`<div class="sheet">
         <div class="stamp">${pending ? "未开放" : "已结束"}</div>
         <h1>${esc(brief.title || "考场试卷")}</h1>
         <p class="meta">${pending ? "这场考试尚未开放。请确认答卷入口是否对应已发布的任务。" : "这场考试已经结束。成绩在教师公开后再从本场入口查看。"}</p>
         ${flash ? `<p class="err">${esc(flash)}</p>` : ""}
-      </div>`;
+      </div>`);
       return;
     }
     const p = profile();
@@ -532,7 +544,7 @@ function render(): void {
       ? `<label class="field">班级<input name="class_name" value="${esc(classVal)}" readonly /></label>`
       : `<label class="field">班级<input name="class_name" list="class-list" value="${esc(classVal)}" /></label>
          <datalist id="class-list">${classes.map((c) => `<option value="${esc(c)}"></option>`).join("")}</datalist>`;
-    root.innerHTML = `<div class="enter">
+    root.innerHTML = hallFrame(`<div class="enter">
       <div class="paper-head">
         <div class="school">教室考试</div>
         <h1>${esc(brief?.title || "考场试卷")}</h1>
@@ -551,7 +563,7 @@ function render(): void {
         </div>
         <p><button type="submit">领取试卷</button></p>
       </form>
-    </div>`;
+    </div>`);
     root.querySelector("#enter")?.addEventListener("submit", (e) => {
       e.preventDefault();
       void onEnter(e.target as HTMLFormElement);
@@ -575,13 +587,13 @@ function render(): void {
     return;
   }
   if (paper?.status === "submitted") {
-    root.innerHTML = `<div class="sheet">
+    root.innerHTML = hallFrame(`<div class="sheet">
       <div class="stamp">已提交</div>
       <h1>答卷已交</h1>
       <p class="meta">考试成绩在教师公开后再显示。练习模式可重新进入再练。</p>
       ${flash ? `<p class="err">${esc(flash)}</p>` : ""}
       <button class="ghost" id="leave" type="button">返回入口</button>
-    </div>`;
+    </div>`);
     root.querySelector("#leave")?.addEventListener("click", () => {
       dropToken();
       paper = null;

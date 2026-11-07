@@ -1,0 +1,27 @@
+:root {
+  color-scheme: light;
+  --ink: #12171e;
+  --muted: #5c6978;
+  --bg: #e6eaef;
+  --paper: #f4f6f8;
+  --card: #ffffff;
+  --line: #cfd6de;
+  --line-strong: #9aa8b6;
+  --rail: #10151c;
+  --rail-2: #171e28;
+  --rail-text: #d7dee6;
+  --rail-dim: #8a96a4;
+  --accent: #1b8f86;
+  --accent-hover: #147870;
+  --accent-soft: #e1f3f0;
+  --seal: #c4453c;
+  --gold: #c56a1a;
+  --ok: #1c7c5a;
+  --warn: #c56a1a;
+  --chip: #eef1f5;
+  --pick: #e1f3f0;
+  --shadow: 0 18px 48px rgba(16, 21, 28, 0.18);
+  --radius: 6px;
+  --font: "Segoe UI Variable Text", "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+  --mono: "Cascadia Mono", "Sarasa Mono SC", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+}
