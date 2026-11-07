@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>题库格式化规范</title>
+    <style>
+        :root { color-scheme: light; }
+        html, body, h1, h2, h3, p, li, div, pre, small, strong, span, ol, ul, hr, table, th, td {
+            color: #000;
+        }
+        body {
+            font-family: "SimSun", "Songti SC", serif;
+            line-height: 1.8;
+            max-width: 800px;
+            margin: 2em auto;
+            padding: 0 1em;
+            background: #fff;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+        }
+        h1, h2, h3, strong, th {
+            font-family: "SimHei", "Microsoft YaHei", "PingFang SC", sans-serif;
+            font-weight: bold;
+        }
+        h1 { font-size: 1.4em; text-align: center; border-bottom: 1px solid #000; padding-bottom: 0.3em; }
+        h2 { font-size: 1.2em; margin-top: 2.2em; border-bottom: 1px solid #000; padding-bottom: 0.2em; }
+        h3 { font-size: 1.05em; margin-top: 1.5em; }
+        table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+        th, td { border: 1px solid #000; padding: 0.4em 0.6em; text-align: left; vertical-align: top; }
+        th { font-family: "SimHei", "Microsoft YaHei", "PingFang SC", sans-serif; font-weight: bold; }
+        pre {
+            font-family: "Courier New", monospace;
+            background: none;
+            border: 1px solid #000;
+            padding: 0.5em;
+            white-space: pre-wrap;
+        }
+        hr { border: none; border-top: 1px solid #000; margin: 2em 0; }
+    </style>
+</head>
+<body>
+
+<h1>题库格式化规范</h1>
+
+<h2>一、文档总体要求</h2>
+<ul>
+    <li><strong>编码</strong>：UTF-8。</li>
+    <li><strong>语言</strong>：<code>&lt;html lang="zh-CN"&gt;</code>。</li>
+    <li><strong>标题</strong>：<code>&lt;title&gt;</code> 用中文概括文档内容，如“Python 程序设计基础练习 200 题（含答案）”“蓝桥杯Python青少组初赛试题（5份）”。</li>
+    <li><strong>纯黑白风格</strong>：不使用任何彩色背景、渐变、图片、阴影、图标；所有文字与线条均为纯黑 <code>#000</code>，背景纯白 <code>#fff</code>。</li>
+    <li><strong>无外部依赖</strong>：不使用 JavaScript、不引用外部字体或图片，全部使用系统字体，保证离线与打印可用。</li>
+</ul>
+
+<h2>二、颜色规范</h2>
+<table>
+    <tr><th>用途</th><th>颜色值</th><th>说明</th></tr>
+    <tr><td>所有文字</td><td><code>#000</code></td><td>包括标题、正文、列表、代码、答案、来源说明、对勾符号</td></tr>
+    <tr><td>页面背景</td><td><code>#fff</code></td><td>纯白</td></tr>
+    <tr><td>边框与分隔线</td><td><code>#000</code></td><td><code>h1</code>、<code>h2</code> 下边框，<code>pre</code> 边框，<code>hr</code> 分隔线均为 1px 实线纯黑</td></tr>
+    <tr><td>代码块背景</td><td>无（透明）</td><td>不加任何背景色</td></tr>
+</table>
+<ul>
+    <li>在 <code>:root</code> 中声明 <code>color-scheme: light</code>，防止浏览器暗色模式或自动反色把黑色文字改成灰白/深灰。</li>
+    <li>显式对所有文字元素（<code>html, body, h1, h2, h3, p, li, div, pre, small, strong, span, ol, ul, hr</code>）设置 <code>color: #000</code>，不依赖继承。</li>
+</ul>
+
+<h2>三、字体规范</h2>
+<table>
+    <tr><th>用途</th><th>字体栈</th><th>说明</th></tr>
+    <tr><td>正文（段落、列表、选项、来源说明）</td><td><code>"SimSun", "Songti SC", serif</code></td><td>宋体，衬线风格</td></tr>
+    <tr><td>标题与加粗元素（<code>h1</code>、<code>h2</code>、<code>h3</code>、<code>strong</code>、<code>.answer</code>）</td><td><code>"SimHei", "Microsoft YaHei", "PingFang SC", sans-serif</code></td><td>黑体/雅黑，有真实粗体字重，避免宋体合成加粗产生墨绿/紫灰彩色抗锯齿</td></tr>
+    <tr><td>代码块（<code>pre</code>）</td><td><code>"Courier New", monospace</code></td><td>等宽字体</td></tr>
+    <tr><td>对勾符号（<code>.check-mark</code>）</td><td><code>"Segoe UI Symbol", "Arial Unicode MS", "DejaVu Sans", Arial, sans-serif</code></td><td>避免宋体下“✓”显示成根号</td></tr>
+</table>
+<ul>
+    <li>在 <code>body</code> 上开启字体平滑：<code>-webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;</code>，关闭亚像素渲染，消除加粗文字彩边。</li>
+    <li>加粗元素统一用 <code>font-weight: bold</code>，正文不加粗。</li>
+</ul>
+
+<h2>四、布局规范</h2>
+<ul>
+    <li><code>body</code>：<code>max-width: 800px; margin: 2em auto; padding: 0 1em;</code>，页面居中，两侧留白。</li>
+    <li>行高：<code>line-height: 1.8</code>，保证试卷阅读舒适度。</li>
+    <li>标题层级：
+        <ul>
+            <li><code>h1</code>：<code>1.4em</code>，居中，下边框 <code>1px solid #000</code>，<code>padding-bottom: 0.3em</code>。</li>
+            <li><code>h2</code>：<code>1.2em</code>，<code>margin-top: 2.2em</code>，下边框 <code>1px solid #000</code>，<code>padding-bottom: 0.2em</code>。</li>
+            <li><code>h3</code>：<code>1.05em</code>，<code>margin-top: 1.5em</code>。</li>
+        </ul>
+    </li>
+    <li>试卷之间用 <code>&lt;hr&gt;</code> 分隔：无边框，<code>border-top: 1px solid #000</code>，<code>margin: 2em 0</code>。</li>
+    <li>试卷末尾用 <code>&lt;p&gt;&lt;small&gt;来源：……&lt;/small&gt;&lt;/p&gt;</code> 标注出处。</li>
+</ul>
+
+<h2>五、组件样式规范</h2>
+<table>
+    <tr><th>组件</th><th>类名/标签</th><th>样式</th></tr>
+    <tr><td>题目容器</td><td><code>.question</code></td><td><code>margin: 0.8em 0</code></td></tr>
+    <tr><td>选项</td><td><code>.options</code></td><td><code>margin: 0.2em 0 0.2em 1.5em</code>，左缩进 1.5em</td></tr>
+    <tr><td>答案</td><td><code>.answer</code></td><td><code>margin: 0.2em 0 0.8em 1.5em</code>，<code>font-weight: bold</code>，左缩进 1.5em</td></tr>
+    <tr><td>代码块</td><td><code>pre</code></td><td><code>font-family: "Courier New", monospace</code>；无背景；<code>border: 1px solid #000</code>；<code>padding: 0.5em</code>；<code>white-space: pre-wrap</code></td></tr>
+    <tr><td>对勾符号</td><td><code>.check-mark</code></td><td>仅设置符号字体，<code>font-weight: normal</code></td></tr>
+    <tr><td>来源说明</td><td><code>small</code></td><td>使用正文宋体，颜色 <code>#000</code></td></tr>
+</table>
+
+<h2>六、内容格式约定</h2>
+<ol>
+    <li><strong>试卷标题</strong>：用 <code>h2</code>，格式为“试卷N：年份 + 赛事名称 + 组别”。</li>
+    <li><strong>题型分类</strong>：用 <code>h3</code>，格式为“一、选择题”“二、编程题”“二、判断题”“三、填空题”等。</li>
+    <li><strong>每道题</strong>：用 <code>&lt;div class="question"&gt;</code> 包裹，内部依次为：
+        <ul>
+            <li>题目描述：<code>&lt;p&gt;第N题 ……&lt;/p&gt;</code>；</li>
+            <li>代码（如有）：<code>&lt;pre&gt;……&lt;/pre&gt;</code>；</li>
+            <li>选项（选择题）：<code>&lt;div class="options"&gt;A. ……　B. ……　C. ……　D. ……&lt;/div&gt;</code>；</li>
+            <li>答案：<code>&lt;div class="answer"&gt;答案：X&lt;/div&gt;</code>；</li>
+            <li>编程题参考答案：<code>&lt;div class="answer"&gt;参考答案：&lt;br&gt;&lt;pre&gt;……&lt;/pre&gt;&lt;/div&gt;</code>。</li>
+        </ul>
+    </li>
+    <li><strong>选项分隔</strong>：同一行选项之间用全角空格 <code>　</code> 或 <code>&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;</code> 分隔。</li>
+    <li><strong>编程题题目标题</strong>：用 <code>&lt;strong&gt;第N题 题目名&lt;/strong&gt;</code>，如“<strong>第6题 鸡蛋包装问题</strong>”。</li>
+    <li><strong>HTML 实体</strong>：代码或文本中的 <code>&lt;</code>、<code>&gt;</code> 必须写成 <code>&amp;lt;</code>、<code>&amp;gt;</code>；对勾用 <code>&amp;#10003;</code>；连续空格用 <code>&amp;nbsp;</code>。</li>
+    <li><strong>判断题答案</strong>：正确用 <code>&lt;span class="check-mark"&gt;&amp;#10003;&lt;/span&gt;</code>，错误用 <code>×</code>；判断题标题中“正确填‘✓’”也同样用 <code>&lt;span class="check-mark"&gt;&amp;#10003;&lt;/span&gt;</code> 包裹。</li>
+    <li><strong>填空题</strong>：题干中用 <code>________</code> 表示空位，答案写在 <code>&lt;br&gt;答案：……</code> 之后；含代码的填空题用 <code>&lt;pre&gt;</code> 展示代码框架。</li>
+    <li><strong>编程题样例</strong>：样例输入与样例输出写在同一行，用 <code>&amp;nbsp;&amp;nbsp;&amp;nbsp;&amp;nbsp;</code> 分隔，如“样例输入：100　样例输出：8”。</li>
+    <li><strong>来源标注</strong>：每份试卷末尾用 <code>&lt;p&gt;&lt;small&gt;来源：……&lt;/small&gt;&lt;/p&gt;</code> 注明真题出处。</li>
+</ol>
+
+<h2>七、风格定位</h2>
+<ul>
+    <li>整体风格为<strong>黑白试卷打印稿</strong>：纯文字、无装饰、无彩色、无图片。</li>
+    <li>正文宋体、标题黑体，接近传统纸质试卷的字体搭配。</li>
+    <li>代码块用等宽字体并加黑色细边框，与正文清晰区分。</li>
+    <li>答案统一加粗，便于对照批改。</li>
+    <li>页面宽度固定 800px 居中，适合屏幕阅读与 A4 打印。</li>
+</ul>
+
+<h2>八、兼容性与可访问性</h2>
+<ul>
+    <li>声明 <code>color-scheme: light</code>，防止暗色模式自动改色。</li>
+    <li>所有文字元素显式指定 <code>color: #000</code>，不依赖浏览器默认样式。</li>
+    <li>加粗元素使用有真实粗体的字体，避免合成加粗产生彩色抗锯齿。</li>
+    <li>对勾符号使用符号字体，避免在宋体下显示成根号。</li>
+    <li>不依赖任何外部资源，离线打开与打印均保持黑白一致。</li>
+</ul>
+
+</body>
+</html>
