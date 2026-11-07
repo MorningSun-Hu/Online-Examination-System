@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use bank_html::{Answer, OptionItem, QType, Question};
 use chrono::{DateTime, Utc};
 use grading::{grade, StudentResponse};
-use paper_gen::{allocate_scores, generate, restore_original_keys, GenError, PaperRule, TYPE_ORDER};
+use paper_gen::{
+    allocate_scores, generate, map_to_exam_keys, restore_original_keys, GenError, PaperRule, TYPE_ORDER,
+};
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
@@ -455,6 +457,47 @@ pub fn generate_snapshot(
     Ok(items)
 }
 
+pub fn overlay_score_plan(items: &mut [SnapshotItem], plan: &HashMap<QType, Vec<u32>>) {
+    let mut type_cursor: HashMap<QType, usize> = HashMap::new();
+    for it in items.iter_mut() {
+        let i = type_cursor.entry(it.qtype).or_insert(0);
+        if let Some(pts) = plan.get(&it.qtype).and_then(|v| v.get(*i)).copied() {
+            it.points = pts;
+        }
+        *i += 1;
+    }
+}
+
+pub async fn frozen_template_items(
+    state: &AppState,
+    exam_paper_id: &str,
+) -> Result<Option<Vec<SnapshotItem>>, AppError> {
+    let row = sqlx::query("SELECT live_draw, items_json FROM exam_papers WHERE id = ?")
+        .bind(exam_paper_id)
+        .fetch_optional(&state.pool)
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let live = row.try_get::<i64, _>("live_draw").unwrap_or(1) != 0;
+    if live {
+        return Ok(None);
+    }
+    let raw = row
+        .try_get::<Option<String>, _>("items_json")
+        .ok()
+        .flatten()
+        .filter(|s| !s.is_empty());
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let items = parse_items(&raw);
+    if items.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some(items))
+}
+
 pub fn student_items(items: &[SnapshotItem], exam_hide_points: bool) -> Vec<Value> {
     items
         .iter()
@@ -480,6 +523,17 @@ pub fn parse_items(raw: &str) -> Vec<SnapshotItem> {
 
 pub fn parse_answers(raw: &str) -> AnswersBlob {
     serde_json::from_str(raw).unwrap_or_default()
+}
+
+pub fn exam_facing_answer(answer: &Answer, option_map: &[(String, String)]) -> Answer {
+    match answer {
+        Answer::Single(k) => {
+            let mapped = map_to_exam_keys(&[k.clone()], option_map);
+            Answer::Single(mapped.into_iter().next().unwrap_or_else(|| k.clone()))
+        }
+        Answer::Multiple(ks) => Answer::Multiple(map_to_exam_keys(ks, option_map)),
+        other => other.clone(),
+    }
 }
 
 pub fn grade_blob(items: &[SnapshotItem], blob: &mut AnswersBlob) -> (Option<i64>, Option<i64>, bool) {

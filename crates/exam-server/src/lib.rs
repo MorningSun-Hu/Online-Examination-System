@@ -102,6 +102,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/teacher/tasks/{id}/results", get(results::list_results))
         .route("/api/teacher/tasks/{id}/results.csv", get(results::export_csv))
         .route("/api/teacher/tasks/{id}/analysis", get(results::analysis))
+        .route("/api/teacher/attempts/{id}", get(results::attempt_paper))
         .route(
             "/api/teacher/attempts/{id}/code-scores",
             put(results::code_scores),

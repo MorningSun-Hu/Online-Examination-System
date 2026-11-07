@@ -533,6 +533,28 @@ details.fold[open] > summary {
   flex-direction: column;
   overflow: hidden;
 }
+
+.workspace.fit .grid.tasks > .panel:last-child {
+  overflow-y: auto;
+}
+.workspace.fit .grid.tasks #monitor-mount {
+  flex: 1 0 auto;
+  overflow: visible;
+}
+.workspace.fit .grid.tasks [data-fit="mon"] {
+  min-height: 280px;
+}
+.workspace.fit .grid.tasks .stats {
+  margin: 6px 0 8px;
+  flex-shrink: 0;
+}
+.workspace.fit .grid.tasks .stat {
+  padding: 8px 10px;
+}
+.workspace.fit .grid.tasks .url-box {
+  padding: 6px 10px;
+  margin: 4px 0;
+}
 .workspace.fit .panel {
   display: flex;
   flex-direction: column;
@@ -717,20 +739,98 @@ details.fold[open] > summary {
   inset: 0;
   background: rgba(20, 28, 36, 0.46);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
-  padding: 5vh 16px 24px;
+  padding: 24px 16px;
   z-index: 40;
-  overflow: auto;
+  overflow: hidden;
 }
 .dialog {
   width: min(760px, 100%);
+  max-height: calc(100vh - 48px);
   background: var(--card);
   border: 1px solid var(--line);
   border-radius: 12px;
   padding: 16px 18px 18px;
   box-shadow: 8px 10px 0 rgba(20, 28, 36, 0.12);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
+
+.dialog.wide {
+  width: min(880px, 100%);
+}
+.dialog > .head-row,
+.dialog > .hint {
+  flex-shrink: 0;
+}
+.dialog > form,
+.dialog > .qsheet {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.field.compact {
+  min-width: 88px;
+  flex: 0 0 96px;
+}
+.field.band-field {
+  min-width: 220px;
+  flex: 1 1 240px;
+}
+.band-cuts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.analysis-form {
+  align-items: end;
+}
+.rank-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+table.rank {
+  width: 100%;
+  font-size: 13px;
+}
+.paper-review .qitem {
+  margin: 0 0 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line);
+}
+.paper-review .qitem h3 {
+  margin: 0 0 8px;
+  font-size: 14px;
+}
+.paper-review .ok { color: var(--ok); }
+.paper-review .bad { color: var(--seal); }
+.paper-review .opt {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  margin: 4px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-size: 13px;
+}
+.paper-review .opt.ro { cursor: default; }
+.paper-review .opt em {
+  font-style: normal;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.paper-review .opt.mine { background: #f8ece6; border-color: #c9842a; }
+.paper-review .opt.right { background: #eef5ea; border-color: #7aa184; }
+.paper-review .opt.mine.right { background: #eef5ea; border-color: #7aa184; }
+.paper-review .opt.mine em { color: var(--seal); }
+.paper-review .opt.right em { color: var(--ok); }
 
 .notice {
   position: fixed;
@@ -783,3 +883,4 @@ details.fold[open] > summary {
   .workspace.fit > .grid,
   .workspace.fit > .panel { height: auto; }
 }
+  .rank-pair { grid-template-columns: 1fr; }

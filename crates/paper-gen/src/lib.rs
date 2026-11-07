@@ -251,3 +251,14 @@ pub fn restore_original_keys(exam_keys: &[String], option_map: &[(String, String
         })
         .collect()
 }
+
+pub fn map_to_exam_keys(original_keys: &[String], option_map: &[(String, String)]) -> Vec<String> {
+    if option_map.is_empty() {
+        return original_keys.to_vec();
+    }
+    option_map
+        .iter()
+        .filter(|(_, orig)| original_keys.iter().any(|k| k == orig))
+        .map(|(exam, _)| exam.clone())
+        .collect()
+}

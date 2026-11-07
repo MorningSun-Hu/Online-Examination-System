@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use bank_html::{Answer, OptionItem, QType, Question};
-use paper_gen::{generate, restore_original_keys, PaperRule, TYPE_ORDER};
+use paper_gen::{generate, map_to_exam_keys, restore_original_keys, PaperRule, TYPE_ORDER};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 
@@ -110,4 +110,19 @@ fn option_map_restores_original_answers() {
             assert_eq!(restored, vec![orig.clone()]);
         }
     }
+}
+
+#[test]
+fn map_to_exam_keys_follows_display_order() {
+    let map = vec![
+        ("A".into(), "C".into()),
+        ("B".into(), "A".into()),
+        ("C".into(), "B".into()),
+    ];
+    assert_eq!(map_to_exam_keys(&["A".into()], &map), vec!["B".to_string()]);
+    assert_eq!(
+        map_to_exam_keys(&["A".into(), "C".into()], &map),
+        vec!["A".to_string(), "B".to_string()]
+    );
+    assert_eq!(map_to_exam_keys(&["A".into()], &[]), vec!["A".to_string()]);
 }

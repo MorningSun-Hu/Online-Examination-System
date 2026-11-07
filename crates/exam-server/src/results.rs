@@ -7,7 +7,7 @@ use sqlx::Row;
 use std::collections::HashMap;
 
 use crate::error::AppError;
-use crate::paper::{grade_blob, load_task, parse_answers, parse_items};
+use crate::paper::{exam_facing_answer, grade_blob, load_task, parse_answers, parse_items};
 use crate::AppState;
 
 #[derive(Deserialize)]
@@ -18,6 +18,11 @@ pub struct CodeScoresBody {
 #[derive(Deserialize)]
 pub struct AnalysisQuery {
     pub pass_score: Option<i64>,
+    pub excellent_score: Option<i64>,
+    pub good_score: Option<i64>,
+    pub bands: Option<String>,
+    pub top_pct: Option<f64>,
+    pub bottom_pct: Option<f64>,
 }
 
 pub async fn code_scores(
@@ -148,6 +153,88 @@ fn stddev_sample(scores: &[i64], avg: f64) -> f64 {
     var.sqrt()
 }
 
+fn pct_cut(total: i64, p: f64) -> i64 {
+    ((total.max(1) as f64) * p).ceil() as i64
+}
+
+fn parse_band_cuts(raw: Option<&str>, total: i64) -> [i64; 4] {
+    let mut cuts = [
+        pct_cut(total, 0.6),
+        pct_cut(total, 0.7),
+        pct_cut(total, 0.8),
+        pct_cut(total, 0.9),
+    ];
+    if let Some(s) = raw.map(str::trim).filter(|x| !x.is_empty()) {
+        let parts: Vec<i64> = s
+            .split(',')
+            .filter_map(|p| p.trim().parse().ok())
+            .collect();
+        if parts.len() == 4 {
+            cuts = [parts[0], parts[1], parts[2], parts[3]];
+        }
+    }
+    cuts.sort();
+    for i in 1..4 {
+        if cuts[i] <= cuts[i - 1] {
+            cuts[i] = cuts[i - 1] + 1;
+        }
+    }
+    cuts
+}
+
+fn band_index(score: i64, cuts: &[i64; 4]) -> usize {
+    if score < cuts[0] {
+        0
+    } else if score < cuts[1] {
+        1
+    } else if score < cuts[2] {
+        2
+    } else if score < cuts[3] {
+        3
+    } else {
+        4
+    }
+}
+
+fn band_labels(cuts: &[i64; 4]) -> [String; 5] {
+    [
+        format!("<{}", cuts[0]),
+        format!("{}-{}", cuts[0], cuts[1].saturating_sub(1)),
+        format!("{}-{}", cuts[1], cuts[2].saturating_sub(1)),
+        format!("{}-{}", cuts[2], cuts[3].saturating_sub(1)),
+        format!("≥{}", cuts[3]),
+    ]
+}
+
+fn default_tail_pct(n: usize) -> f64 {
+    if n == 0 {
+        10.0
+    } else {
+        (10.0 / n as f64 * 100.0).clamp(1.0, 100.0)
+    }
+}
+
+fn people_json(row: &(i64, String, String, String, String)) -> Value {
+    json!({
+        "total_score": row.0,
+        "student_no": row.1,
+        "name": row.2,
+        "class_name": row.3,
+        "attempt_id": row.4,
+    })
+}
+
+async fn task_live_draw(state: &AppState, task: &crate::paper::TaskRow) -> Result<bool, AppError> {
+    let Some(pid) = task.paper_id.as_deref() else {
+        return Ok(true);
+    };
+    let v: Option<i64> = sqlx::query_scalar("SELECT live_draw FROM exam_papers WHERE id = ?")
+        .bind(pid)
+        .fetch_optional(&state.pool)
+        .await?;
+    Ok(v.map(|x| x != 0).unwrap_or(true))
+}
+
 pub async fn analysis(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -155,6 +242,15 @@ pub async fn analysis(
 ) -> Result<Json<Value>, AppError> {
     let task = load_task(&state, &id).await?;
     let pass = q.pass_score.unwrap_or(task.pass_score);
+    let mut good_cut = q.good_score.unwrap_or(pct_cut(task.total_score, 0.8));
+    let mut excellent_cut = q.excellent_score.unwrap_or(pct_cut(task.total_score, 0.9));
+    if good_cut < pass {
+        good_cut = pass;
+    }
+    if excellent_cut < good_cut {
+        excellent_cut = good_cut;
+    }
+    let cuts = parse_band_cuts(q.bands.as_deref(), task.total_score);
     let rows = load_result_rows(&state, &id).await?;
     let roster_n: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM task_roster WHERE task_id = ?")
         .bind(&id)
@@ -193,28 +289,22 @@ pub async fn analysis(
     let sd = stddev_sample(&scores, avg);
     let passed = scores.iter().filter(|s| **s >= pass).count();
     let total = task.total_score.max(1) as f64;
-    let excellent_cut = (total * 0.9).ceil() as i64;
-    let good_cut = (total * 0.8).ceil() as i64;
     let excellent = scores.iter().filter(|s| **s >= excellent_cut).count();
     let good = scores.iter().filter(|s| **s >= good_cut).count();
     let full_mark = scores.iter().filter(|s| **s >= task.total_score).count();
     let failed = scores.iter().filter(|s| **s < pass).count();
     let mut bands = [0u32; 5];
     for s in &scores {
-        let p = *s as f64 / total;
-        let idx = if p < 0.6 {
-            0
-        } else if p < 0.7 {
-            1
-        } else if p < 0.8 {
-            2
-        } else if p < 0.9 {
-            3
-        } else {
-            4
-        };
-        bands[idx] += 1;
+        bands[band_index(*s, &cuts)] += 1;
     }
+    let good_only = scores
+        .iter()
+        .filter(|s| **s >= good_cut && **s < excellent_cut)
+        .count();
+    let pass_only = scores
+        .iter()
+        .filter(|s| **s >= pass && **s < good_cut)
+        .count();
     let mut per_question: Vec<Value> = Vec::new();
     let mut type_got: HashMap<String, (f64, f64, f64, f64, usize)> = HashMap::new();
     if let Some(first) = rows.first() {
@@ -275,6 +365,11 @@ pub async fn analysis(
             e.4 += 1;
         }
     }
+    let live_draw = task_live_draw(&state, &task).await?;
+    let question_count = per_question.len();
+    if live_draw {
+        per_question.clear();
+    }
     let type_rates: Value = type_got
         .into_iter()
         .map(|(k, (g, p, c, nn, cnt))| {
@@ -320,7 +415,48 @@ pub async fn analysis(
             .unwrap_or("")
             .cmp(b["class_name"].as_str().unwrap_or(""))
     });
-    Ok(Json(json!({
+    let mut people: Vec<(i64, String, String, String, String)> = Vec::new();
+    for r in &rows {
+        if let Some(s) = r["total_score"].as_i64() {
+            people.push((
+                s,
+                r["student_no"].as_str().unwrap_or("").to_string(),
+                r["name"].as_str().unwrap_or("").to_string(),
+                r["class_name"].as_str().unwrap_or("").to_string(),
+                r["attempt_id"].as_str().unwrap_or("").to_string(),
+            ));
+        }
+    }
+    people.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
+    let pn = people.len();
+    let default_pct = default_tail_pct(pn);
+    let top_pct = q.top_pct.unwrap_or(default_pct).clamp(1.0, 100.0);
+    let bottom_pct = q.bottom_pct.unwrap_or(default_pct).clamp(1.0, 100.0);
+    let top_n = if pn == 0 {
+        0
+    } else {
+        ((top_pct / 100.0) * pn as f64).ceil() as usize
+    }
+    .min(pn)
+    .max(if pn == 0 { 0 } else { 1 });
+    let bottom_n = if pn == 0 {
+        0
+    } else {
+        ((bottom_pct / 100.0) * pn as f64).ceil() as usize
+    }
+    .min(pn)
+    .max(if pn == 0 { 0 } else { 1 });
+    let top_students: Vec<Value> = people.iter().take(top_n).map(people_json).collect();
+    let bottom_students: Vec<Value> = people.iter().rev().take(bottom_n).map(people_json).collect();
+    let labels = band_labels(&cuts);
+    let rate = |c: usize| if n == 0 { 0.0 } else { c as f64 / n as f64 };
+    let cv = if avg.abs() < f64::EPSILON { 0.0 } else { sd / avg };
+    let submit_rate = if roster_n == 0 {
+        0.0
+    } else {
+        n as f64 / roster_n as f64
+    };
+    let mut body = json!({
         "count": n,
         "roster_count": roster_n,
         "average": avg,
@@ -339,20 +475,112 @@ pub async fn analysis(
         "excellent": excellent,
         "good": good,
         "full_mark": full_mark,
-        "pass_rate": if n == 0 { 0.0 } else { passed as f64 / n as f64 },
-        "fail_rate": if n == 0 { 0.0 } else { failed as f64 / n as f64 },
-        "excellent_rate": if n == 0 { 0.0 } else { excellent as f64 / n as f64 },
-        "good_rate": if n == 0 { 0.0 } else { good as f64 / n as f64 },
+        "pass_rate": rate(passed),
+        "fail_rate": rate(failed),
+        "excellent_rate": rate(excellent),
+        "good_rate": rate(good),
         "questions": per_question,
+        "live_draw": live_draw,
+        "question_count": question_count,
         "type_rates": type_rates,
         "classes": classes,
         "bands": {
+            "cuts": cuts,
+            "labels": labels,
+            "counts": bands,
             "below_60": bands[0],
             "60_70": bands[1],
             "70_80": bands[2],
             "80_90": bands[3],
             "90_100": bands[4],
         }
+    });
+    if let Value::Object(obj) = &mut body {
+        obj.insert("good_score".into(), json!(good_cut));
+        obj.insert("full_rate".into(), json!(rate(full_mark)));
+        obj.insert("submit_rate".into(), json!(submit_rate));
+        obj.insert("cv".into(), json!(cv));
+        obj.insert("excellent_only".into(), json!(excellent));
+        obj.insert("good_only".into(), json!(good_only));
+        obj.insert("pass_only".into(), json!(pass_only));
+        obj.insert("excellent_only_rate".into(), json!(rate(excellent)));
+        obj.insert("good_only_rate".into(), json!(rate(good_only)));
+        obj.insert("pass_only_rate".into(), json!(rate(pass_only)));
+        obj.insert("top_pct".into(), json!(top_pct));
+        obj.insert("bottom_pct".into(), json!(bottom_pct));
+        obj.insert("top_n".into(), json!(top_n));
+        obj.insert("bottom_n".into(), json!(bottom_n));
+        obj.insert("top_students".into(), json!(top_students));
+        obj.insert("bottom_students".into(), json!(bottom_students));
+    }
+    Ok(Json(body))
+}
+
+pub async fn attempt_paper(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let row = sqlx::query(
+        r#"SELECT a.id, a.status, a.answers_json, a.objective_score, a.total_score, a.submitted_at,
+                  p.items_json, p.task_id, s.student_no, s.name, s.class_name
+           FROM attempts a
+           JOIN papers p ON p.id = a.paper_id
+           JOIN students s ON s.id = p.student_id
+           WHERE a.id = ?"#,
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "NOT_FOUND", "答卷不存在"))?;
+    let status: String = row.get("status");
+    if status != "submitted" {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "NOT_SUBMITTED",
+            "该学生尚未交卷",
+        ));
+    }
+    let task_id: String = row.get("task_id");
+    let task = load_task(&state, &task_id).await?;
+    if task.status != "closed" && task.status != "graded" && task.status != "released" {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "BAD_STATE",
+            "收卷后才能查看学生试卷",
+        ));
+    }
+    let items = parse_items(&row.get::<String, _>("items_json"));
+    let mut blob = parse_answers(&row.get::<String, _>("answers_json"));
+    grade_blob(&items, &mut blob);
+    let details: Vec<Value> = items
+        .iter()
+        .map(|it| {
+            json!({
+                "question_id": it.question_id,
+                "qtype": crate::banks::qtype_str(it.qtype),
+                "stem": it.stem,
+                "stem_html": it.stem_html,
+                "options": it.options,
+                "points": it.points,
+                "answer": exam_facing_answer(&it.answer, &it.option_map),
+                "response": blob.items.get(&it.question_id),
+                "score": blob.item_scores.get(&it.question_id),
+                "correct": blob.item_correct.get(&it.question_id),
+            })
+        })
+        .collect();
+    Ok(Json(json!({
+        "attempt_id": row.get::<String, _>("id"),
+        "task_id": task_id,
+        "title": task.title,
+        "student_no": row.get::<String, _>("student_no"),
+        "name": row.get::<String, _>("name"),
+        "class_name": row.get::<String, _>("class_name"),
+        "submitted_at": row.get::<Option<String>, _>("submitted_at"),
+        "objective_score": row.get::<Option<i64>, _>("objective_score"),
+        "total_score": row.get::<Option<i64>, _>("total_score"),
+        "paper_total": task.total_score,
+        "items": details,
     })))
 }
 

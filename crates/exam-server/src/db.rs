@@ -107,6 +107,8 @@ const SCHEMA: &[&str] = &[
         shuffle_options INTEGER NOT NULL DEFAULT 1,
         type_subtotals_json TEXT,
         score_plan_json TEXT,
+        live_draw INTEGER NOT NULL DEFAULT 1,
+        items_json TEXT,
         total_score INTEGER NOT NULL,
         pass_score INTEGER NOT NULL,
         created_at TEXT NOT NULL,
@@ -140,6 +142,8 @@ pub async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     ensure_column(pool, "exam_tasks", "starts_at", "TEXT").await?;
     ensure_column(pool, "exam_papers", "bank_draws_json", "TEXT").await?;
     ensure_column(pool, "paper_rules", "bank_draws_json", "TEXT").await?;
+    ensure_column(pool, "exam_papers", "live_draw", "INTEGER NOT NULL DEFAULT 1").await?;
+    ensure_column(pool, "exam_papers", "items_json", "TEXT").await?;
     Ok(())
 }
 

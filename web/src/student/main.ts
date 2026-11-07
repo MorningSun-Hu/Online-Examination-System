@@ -9,6 +9,33 @@ function taskParam(): string {
   return new URLSearchParams(location.search).get("t") || "";
 }
 
+function tokenStoreKey(taskId: string): string {
+  return `${TOKEN_KEY}:${taskId}`;
+}
+
+function readToken(): string | null {
+  const t = taskParam();
+  if (t) {
+    return localStorage.getItem(tokenStoreKey(t));
+  }
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function writeToken(value: string, taskId?: string): void {
+  const id = (taskId || taskParam()).trim();
+  localStorage.removeItem(TOKEN_KEY);
+  if (id) {
+    localStorage.setItem(tokenStoreKey(id), value);
+  } else {
+    localStorage.setItem(TOKEN_KEY, value);
+  }
+}
+
+function errCode(data: unknown): string {
+  const e = data as { error?: { code?: string } };
+  return e?.error?.code || "";
+}
+
 type Item = {
   question_id: string;
   qtype: string;
@@ -49,7 +76,7 @@ function showValue(v: unknown): string {
 }
 
 const cid = clientId(CID_KEY);
-let token = localStorage.getItem(TOKEN_KEY);
+let token = readToken();
 let flash = "";
 let saveNote = "答案将自动保存";
 let paper: {
@@ -89,6 +116,17 @@ let paperBound = false;
 
 const root = document.getElementById("app")!;
 
+function dropToken(): void {
+  const ids = [taskParam(), String(paper?.task_id || ""), String(brief?.task_id || "")];
+  for (const id of ids) {
+    if (id) {
+      localStorage.removeItem(tokenStoreKey(id));
+    }
+  }
+  localStorage.removeItem(TOKEN_KEY);
+  token = null;
+}
+
 function cacheKey(): string {
   return `exam_draft_${paper?.task_id || "cur"}_${cid}`;
 }
@@ -127,10 +165,14 @@ function mergeAnswers(server: Record<string, Answer> | undefined): Record<string
 }
 
 async function scall<T = Record<string, unknown>>(path: string, opts: RequestInit = {}) {
-  const r = await api<T>(path, { ...opts, token });
-  if (r.status === 401) {
-    token = null;
-    localStorage.removeItem(TOKEN_KEY);
+  const headers = new Headers(opts.headers);
+  const t = taskParam();
+  if (t) {
+    headers.set("x-exam-task", t);
+  }
+  const r = await api<T>(path, { ...opts, headers, token });
+  if (r.status === 401 || errCode(r.data) === "TASK_MISMATCH") {
+    dropToken();
   }
   return r;
 }
@@ -219,12 +261,23 @@ async function refreshPaper(): Promise<void> {
   const r = await scall<typeof paper>("/api/student/paper");
   if (r.status === 200) {
     paper = r.data;
+    const wanted = taskParam();
+    if (wanted && paper?.task_id && paper.task_id !== wanted) {
+      dropToken();
+      paper = null;
+      result = null;
+      return;
+    }
     answers = mergeAnswers(paper?.answers);
     persistLocal();
     if (paper?.status === "submitted" || paper?.released) {
       const rr = await scall("/api/student/result");
       result = rr.status === 200 ? rr.data : null;
     }
+  } else if (r.status === 401 || errCode(r.data) === "TASK_MISMATCH") {
+    paper = null;
+    result = null;
+    flash = "";
   } else {
     flash = errMsg(r.data, "无法加载试卷");
     paper = null;
@@ -461,6 +514,17 @@ function render(): void {
     clockTimer = null;
   }
   if (!token) {
+    const open = brief?.status === "published" || brief?.status === "released";
+    if (brief && !open) {
+      const pending = brief.status === "draft";
+      root.innerHTML = `<div class="sheet">
+        <div class="stamp">${pending ? "未开放" : "已结束"}</div>
+        <h1>${esc(brief.title || "考场试卷")}</h1>
+        <p class="meta">${pending ? "这场考试尚未开放。请确认答卷入口是否对应已发布的任务。" : "这场考试已经结束。成绩在教师公开后再从本场入口查看。"}</p>
+        ${flash ? `<p class="err">${esc(flash)}</p>` : ""}
+      </div>`;
+      return;
+    }
     const p = profile();
     const classes = brief?.classes || [];
     const classVal = p.class_name || (brief?.single_class ? String(classes[0] || "") : "");
@@ -503,8 +567,7 @@ function render(): void {
   if (result && (paper?.released || paper?.mode === "practice") && (result as { items?: unknown }).items) {
     root.innerHTML = resultHtml();
     root.querySelector("#retry")?.addEventListener("click", () => {
-      localStorage.removeItem(TOKEN_KEY);
-      token = null;
+      dropToken();
       paper = null;
       result = null;
       render();
@@ -520,8 +583,7 @@ function render(): void {
       <button class="ghost" id="leave" type="button">返回入口</button>
     </div>`;
     root.querySelector("#leave")?.addEventListener("click", () => {
-      localStorage.removeItem(TOKEN_KEY);
-      token = null;
+      dropToken();
       paper = null;
       render();
     });
@@ -639,7 +701,7 @@ async function onEnter(form: HTMLFormElement): Promise<void> {
     return;
   }
   token = String(r.data.token);
-  localStorage.setItem(TOKEN_KEY, token);
+  writeToken(token, String(r.data.task_id || payload.task_id || ""));
   paper = r.data;
   localStorage.setItem(
     PROFILE_KEY,
@@ -659,8 +721,19 @@ async function onEnter(form: HTMLFormElement): Promise<void> {
   render();
 }
 
-if (token) {
-  void refreshPaper().then(render);
-} else {
-  void loadBrief().then(render);
+async function boot(): Promise<void> {
+  await loadBrief();
+  token = readToken();
+  if (token) {
+    await refreshPaper();
+    const wanted = taskParam() || brief?.task_id || "";
+    if (wanted && paper?.task_id && paper.task_id !== wanted) {
+      dropToken();
+      paper = null;
+      result = null;
+    }
+  }
+  render();
 }
+
+void boot();

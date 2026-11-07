@@ -109,6 +109,64 @@ function boxHeight(el: Element): number {
   );
 }
 
+function packQuestionStarts(box: HTMLElement): number[] {
+  const avail = box.clientHeight;
+  const sheet = box.querySelector(".qsheet");
+  if (!sheet || avail < 24) {
+    return [0];
+  }
+  const items: { height: number; hadHeader: boolean }[] = [];
+  let pending = 0;
+  let pendingHeader = false;
+  for (const kid of Array.from(sheet.children)) {
+    const h = boxHeight(kid);
+    if (kid.classList.contains("qitem")) {
+      items.push({ height: pending + h, hadHeader: pendingHeader });
+      pending = 0;
+      pendingHeader = false;
+    } else {
+      pending += h;
+      pendingHeader = true;
+    }
+  }
+  if (!items.length) {
+    return [0];
+  }
+  const h3 = sheet.querySelector("h3");
+  const headerH = h3 ? boxHeight(h3) : 28;
+  const starts = [0];
+  let acc = 0;
+  for (let i = 0; i < items.length; i++) {
+    const h = items[i].height;
+    if (acc > 0 && acc + h > avail + 4) {
+      starts.push(i);
+      acc = (items[i].hadHeader ? 0 : headerH) + items[i].height;
+    } else {
+      acc += h;
+    }
+  }
+  return starts;
+}
+
+function questionSlice(
+  packing: boolean,
+  starts: number[],
+  page: number,
+  total: number,
+): { from: number; count: number; pages: number } {
+  if (!total) {
+    return { from: 0, count: 0, pages: 1 };
+  }
+  if (packing) {
+    return { from: 0, count: total, pages: Math.max(1, starts.length) };
+  }
+  const pages = Math.max(1, starts.length);
+  const p = Math.min(Math.max(1, page), pages);
+  const from = starts[p - 1] ?? 0;
+  const end = starts[p] ?? total;
+  return { from, count: Math.max(0, end - from), pages };
+}
+
 function scoreEditing(): boolean {
   return document.activeElement instanceof HTMLInputElement && document.activeElement.classList.contains("score-inline");
 }
@@ -157,29 +215,31 @@ function fitOnce(): boolean {
       const cap = pageFitCap[key];
       if (cap && n > cap) n = cap;
     }
-    n = Math.max(4, Math.min(60, n));
+    n = Math.max(key === "mon" ? 1 : 4, Math.min(60, n));
   } else {
-    const items = Array.from(box.querySelectorAll(".qitem"));
-    if (!items.length) return false;
-    if (overflowing) {
-      let acc = 0;
-      const kids = Array.from(box.querySelector(".qsheet")?.children || []);
-      for (const kid of kids) {
-        const h = boxHeight(kid);
-        if (n > 0 && acc + h > avail) break;
-        acc += h;
-        if (kid.classList.contains("qitem")) n += 1;
-      }
-      pageFitCap[key] = n;
-    } else {
-      const avg = items.reduce((s, el) => s + boxHeight(el), 0) / items.length;
-      const head = box.querySelector("h3");
-      const headH = head ? boxHeight(head) : 28;
-      n = Math.floor((avail - headH) / Math.max(avg, 48));
-      const cap = pageFitCap[key];
-      if (cap && n > cap) n = cap;
+    const packing = key === "paperq" ? paperNeedPack : bankNeedPack;
+    if (!packing) {
+      return false;
     }
-    n = Math.max(2, Math.min(40, n));
+    if (!box.querySelector(".qitem")) {
+      return false;
+    }
+    const starts = packQuestionStarts(box);
+    if (key === "paperq") {
+      paperPackStarts = starts;
+      paperNeedPack = false;
+      if (paperQPage > starts.length) {
+        paperQPage = starts.length;
+      }
+    } else {
+      bankPackStarts = starts;
+      bankNeedPack = false;
+      if (bankQPage > starts.length) {
+        bankQPage = starts.length;
+      }
+    }
+    render();
+    return true;
   }
   if (n === pageFit[key]) return false;
   pageFit[key] = n;
@@ -247,6 +307,10 @@ let showPaperForm = false;
 let rosterPage = 1;
 let bankQPage = 1;
 let paperQPage = 1;
+let paperPackStarts: number[] = [0];
+let paperNeedPack = true;
+let bankPackStarts: number[] = [0];
+let bankNeedPack = true;
 let showTaskForm = false;
 let monPage = 1;
 const pageFit: Record<"stu" | "bankq" | "paperq" | "mon", number> = { stu: 0, bankq: 0, paperq: 0, mon: 0 };
@@ -265,8 +329,15 @@ let showQForm = false;
 let editQid = "";
 let taskView: "current" | "history" = "current";
 let analysisPass = "";
+let analysisGood = "";
+let analysisExcellent = "";
+let analysisBands = "";
+let analysisTopPct = "";
+let analysisBottomPct = "";
 let gradePane: "board" | "students" | "questions" = "board";
 let gradeQ: Record<string, unknown> | null = null;
+let gradeStu = "";
+let gradePaper: Record<string, unknown> | null = null;
 
 const root = document.getElementById("app")!;
 const noticeHost = document.createElement("div");
@@ -388,6 +459,8 @@ async function loadTab(): Promise<void> {
     if (bankId) {
       const d = await tcall<Record<string, unknown>>(`/api/teacher/banks/${bankId}`);
       bank = d.status === 200 ? d.data : null;
+      bankNeedPack = true;
+      bankPackStarts = [0];
     }
   }
   if (tab === "roster") {
@@ -458,6 +531,18 @@ async function saveEarly(on: boolean): Promise<void> {
   }
 }
 
+function analysisQuery(): string {
+  const p = new URLSearchParams();
+  if (analysisPass) p.set("pass_score", analysisPass);
+  if (analysisGood) p.set("good_score", analysisGood);
+  if (analysisExcellent) p.set("excellent_score", analysisExcellent);
+  if (analysisBands) p.set("bands", analysisBands);
+  if (analysisTopPct) p.set("top_pct", analysisTopPct);
+  if (analysisBottomPct) p.set("bottom_pct", analysisBottomPct);
+  const s = p.toString();
+  return s ? `?${s}` : "";
+}
+
 async function loadTask(): Promise<void> {
   const t = await tcall<Record<string, unknown>>(`/api/teacher/tasks/${taskId}`);
   task = t.status === 200 ? t.data : null;
@@ -470,8 +555,7 @@ async function loadTask(): Promise<void> {
   if (tab === "grades") {
     const rs = await tcall<Record<string, unknown>>(`/api/teacher/tasks/${taskId}/results`);
     results = rs.status === 200 ? rs.data : null;
-    const q = analysisPass ? `?pass_score=${encodeURIComponent(analysisPass)}` : "";
-    const an = await tcall<Record<string, unknown>>(`/api/teacher/tasks/${taskId}/analysis${q}`);
+    const an = await tcall<Record<string, unknown>>(`/api/teacher/tasks/${taskId}/analysis${analysisQuery()}`);
     analysis = an.status === 200 ? an.data : null;
   }
 }
@@ -479,6 +563,9 @@ async function loadTask(): Promise<void> {
 async function loadPaperPreview(): Promise<void> {
   paperQs = [];
   paperPreviewErr = "";
+  paperNeedPack = true;
+  paperPackStarts = [0];
+  paperQPage = 1;
   if (!paperId) {
     return;
   }
@@ -585,6 +672,13 @@ function bind(): void {
       gradePane = "board";
       gradeQ = null;
       analysisPass = "";
+      analysisGood = "";
+      analysisExcellent = "";
+      analysisBands = "";
+      analysisTopPct = "";
+      analysisBottomPct = "";
+      gradeStu = "";
+      gradePaper = null;
       await loadTask();
       render();
     });
@@ -808,6 +902,27 @@ function bind(): void {
     gradeQ = null;
     render();
   });
+  root.querySelectorAll("[data-grade-stu]").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      const id = (el as HTMLElement).dataset.gradeStu || "";
+      gradeStu = gradeStu === id ? "" : id;
+      if (!gradeStu || String(gradePaper?.attempt_id || "") !== gradeStu) {
+        gradePaper = null;
+      }
+      render();
+    });
+  });
+  root.querySelector(".modal[data-grade-paper-close]")?.addEventListener("click", (ev) => {
+    if (ev.target === ev.currentTarget) {
+      gradePaper = null;
+      render();
+    }
+  });
+  root.querySelector("button[data-grade-paper-close]")?.addEventListener("click", () => {
+    gradePaper = null;
+    render();
+  });
   fillQuestionForm();
 }
 
@@ -988,6 +1103,7 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
             shuffle_options: fd.get("shuffle_options") === "on",
             bank_draws,
           },
+          live_draw: fd.get("live_draw") === "on",
         }),
       });
       tellResult(r.status === 201, "试卷已保存，可在任务里选用", r.data);
@@ -998,12 +1114,14 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
       }
     }
     if (name === "task-create") {
-      const student_ids = Array.from(form.querySelectorAll<HTMLInputElement>("input[name=student_id]:checked")).map(
-        (i) => i.value,
-      );
       const class_names = Array.from(form.querySelectorAll<HTMLInputElement>("input[name=class_name]:checked")).map(
         (i) => i.value,
       );
+      const peopleOpen = Boolean(form.querySelector<HTMLDetailsElement>("details.fold")?.open);
+      const student_ids =
+        class_names.length && !peopleOpen
+          ? []
+          : Array.from(form.querySelectorAll<HTMLInputElement>("input[name=student_id]:checked")).map((i) => i.value);
       const paper_id = val("paper_id");
       if (!paper_id) {
         tell("请先在试卷管理中组卷，再选择试卷", "err");
@@ -1075,8 +1193,13 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
     }
     if (name === "analysis") {
       analysisPass = val("pass_score");
-      const q = analysisPass;
-      const r = await tcall(`/api/teacher/tasks/${taskId}/analysis${q ? `?pass_score=${q}` : ""}`);
+      analysisGood = val("good_score");
+      analysisExcellent = val("excellent_score");
+      analysisTopPct = val("top_pct");
+      analysisBottomPct = val("bottom_pct");
+      const cuts = [val("band1"), val("band2"), val("band3"), val("band4")];
+      analysisBands = cuts.every((x) => x) ? cuts.join(",") : "";
+      const r = await tcall(`/api/teacher/tasks/${taskId}/analysis${analysisQuery()}`);
       analysis = r.status === 200 ? r.data : analysis;
       tellResult(r.status === 200, "分析已刷新", r.data);
     }
@@ -1231,6 +1354,15 @@ async function act(kind: string, id?: string): Promise<void> {
     const title = String(task?.title || "成绩").replace(/[\\/:*?"<>|]/g, "_");
     a.download = `${title}-成绩.csv`;
     a.click();
+    return;
+  } else if (kind === "view-paper") {
+    const r = await tcall<Record<string, unknown>>(`/api/teacher/attempts/${id}`);
+    if (r.status === 200) {
+      gradePaper = r.data;
+    } else {
+      tell(errMsg(r.data), "err");
+    }
+    render();
     return;
   } else if (map[kind]) {
     const [method, path] = map[kind];
@@ -1494,12 +1626,10 @@ function banksHtml(): string {
     .join("");
   const qs = (bank?.questions as Array<Record<string, unknown>>) || [];
   const bankName = bank ? String((bank as { name?: string }).name || "") : "";
-  const qSize = pageSizeFor("q");
-  const qPages = Math.max(1, Math.ceil((qs.length || 1) / qSize));
-  if (bankQPage > qPages) {
-    bankQPage = qPages;
+  const qSlice = questionSlice(bankNeedPack, bankPackStarts, bankQPage, qs.length);
+  if (bankQPage > qSlice.pages) {
+    bankQPage = qSlice.pages;
   }
-  const qFrom = qs.length ? (bankQPage - 1) * qSize : 0;
   return `<div class="grid">
     <section class="panel">
       <h2>题库列表</h2>
@@ -1531,10 +1661,10 @@ function banksHtml(): string {
                 <div class="head-row">
                   <h3>题目</h3>
                  <button type="button" data-add-q>单题增加</button>
-               </div>
-               ${showQForm ? questionFormHtml() : ""}
-                <div class="scroll" data-fit="bankq">${questionSheetHtml(qs, qFrom, qSize, true)}</div>
-                ${pagerHtml("bankq", bankQPage, qPages, qs.length)}
+                </div>
+                ${showQForm ? questionFormHtml() : ""}
+                <div class="scroll" data-fit="bankq">${questionSheetHtml(qs, qSlice.from, qSlice.count, true)}</div>
+                ${pagerHtml("bankq", bankQPage, qSlice.pages, qs.length)}
               </section>`
           : "<h2>选择左侧题库</h2><p class=\"hint\">点左侧题库名称开始维护。</p>"
       }
@@ -1797,6 +1927,7 @@ function papersHtml(): string {
         : "";
       return `<tr class="pick${paperId === p.id ? " on" : ""}" data-paper="${esc(p.id)}">
         <td>${esc(p.title)}</td>
+        <td>${esc(paperKind(p))}</td>
         <td>${esc(p.total_score)}</td>
         <td>${esc(c)}</td>
       </tr>`;
@@ -1817,12 +1948,10 @@ function papersHtml(): string {
   const counts = QTYPES.map(
     ([k, l]) => `<label class="field">${l}题量<input type="number" min="0" name="count_${k}" value="0" /></label>`,
   ).join("");
-  const qSize = pageSizeFor("q");
-  const qPages = Math.max(1, Math.ceil((paperQs.length || 1) / qSize));
-  if (paperQPage > qPages) {
-    paperQPage = qPages;
+  const qSlice = questionSlice(paperNeedPack, paperPackStarts, paperQPage, paperQs.length);
+  if (paperQPage > qSlice.pages) {
+    paperQPage = qSlice.pages;
   }
-  const qFrom = paperQs.length ? (paperQPage - 1) * qSize : 0;
   const current = papers.find((p) => p.id === paperId);
   const dialog = showPaperForm
     ? `<div class="modal" data-modal>
@@ -1840,7 +1969,9 @@ function papersHtml(): string {
             <div class="checks" style="max-height:none;background:transparent;border:0;padding:0">
               <label class="check"><input type="checkbox" name="shuffle_within_section" checked /> <span>题型内乱序</span></label>
               <label class="check"><input type="checkbox" name="shuffle_options" checked /> <span>选项乱序</span></label>
+              <label class="check"><input type="checkbox" name="live_draw" /> <span>智能实时组卷</span></label>
             </div>
+            <p class="hint">勾选后每次预览和每位考生都会重新抽题；不勾选则创建时生成一份固定试卷。</p>
             <div class="row">${counts}</div>
             <p class="toolbar"><button type="button" data-toggle="bank_id">全选题库</button></p>
             <p class="hint">每个题库可填抽题数量或比例；都留空则只按题型题量混合抽取。若填写，勾选的题库都要填，且数量之和等于各题型题量之和。</p>
@@ -1858,6 +1989,8 @@ function papersHtml(): string {
          </div>
        </div>
        <p class="hint">总分 ${esc(current.total_score)} · 及格 ${esc(current.pass_score)} · ${esc(
+         paperKind(current)
+       )} · ${esc(
          ((current.type_counts as Record<string, number> | undefined)
            ? Object.entries(current.type_counts as Record<string, number>)
                .map(([k, n]) => `${qlabel(k)}${n}`)
@@ -1865,8 +1998,8 @@ function papersHtml(): string {
            : "") || "未填题量"
        )}</p>
        ${paperPreviewErr ? `<p class="hint">${esc(paperPreviewErr)}</p>` : ""}
-         <div class="scroll" data-fit="paperq">${questionSheetHtml(paperQs, qFrom, qSize, false, (current?.score_plan as Record<string, number[]>) || undefined)}</div>
-         ${pagerHtml("paperq", paperQPage, qPages, paperQs.length)}`
+          <div class="scroll" data-fit="paperq">${questionSheetHtml(paperQs, qSlice.from, qSlice.count, false, (current?.score_plan as Record<string, number[]>) || undefined)}</div>
+          ${pagerHtml("paperq", paperQPage, qSlice.pages, paperQs.length)}`
     : `<h2>试卷题目</h2><p class="hint">点左侧试卷查看题目，或点「新建试卷」组卷。</p>`;
   return `<div class="grid papers">
     <section class="panel">
@@ -1874,23 +2007,21 @@ function papersHtml(): string {
         <h2>已组试卷</h2>
         <button class="primary" type="button" data-paper-new>新建试卷</button>
       </div>
-      <div class="scroll"><table><thead><tr><th>标题</th><th>总分</th><th>题量</th></tr></thead>
-      <tbody>${list || `<tr><td colspan="3" class="muted">还没有试卷</td></tr>`}</tbody></table></div>
+      <div class="scroll"><table><thead><tr><th>标题</th><th>类型</th><th>总分</th><th>题量</th></tr></thead>
+      <tbody>${list || `<tr><td colspan="4" class="muted">还没有试卷</td></tr>`}</tbody></table></div>
     </section>
     <section class="panel">${right}</section>
   </div>${dialog}`;
 }
 
 function taskCreateHtml(): string {
-  const ids = ((roster?.student_ids as string[]) || []);
   const stuItems = students.map((s) => ({
     id: String(s.id),
     label: `${s.class_name} ${s.student_no} ${s.name}`,
     extra: `${s.class_name} ${s.student_no} ${s.name}`,
-    checked: ids.includes(String(s.id)),
   }));
   const paperOpts = papers
-    .map((p) => `<option value="${esc(p.id)}">${esc(p.title)}（${esc(p.total_score)}分）</option>`)
+    .map((p) => `<option value="${esc(p.id)}">${esc(p.title)}（${esc(p.total_score)}分 · ${esc(paperKind(p))}）</option>`)
     .join("");
   const classItems = classes.map((c) => ({
     id: String(c.name),
@@ -2017,6 +2148,72 @@ function fmtPct(v: unknown): string {
   return `${(n * 100).toFixed(1)}%`;
 }
 
+function paperKind(p: Record<string, unknown>): string {
+  return p.live_draw ? "智能实时组卷" : "固定试卷";
+}
+
+function fmtPctNum(v: unknown): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) {
+    return "—";
+  }
+  return `${n.toFixed(1)}%`;
+}
+
+function showAns(v: unknown): string {
+  if (v == null || v === "") {
+    return "未作答";
+  }
+  if (typeof v === "object" && v && "value" in (v as object)) {
+    return showAns((v as { value?: unknown }).value);
+  }
+  if (Array.isArray(v)) {
+    return v.length ? v.map(String).join("、") : "未作答";
+  }
+  if (typeof v === "boolean") {
+    return v ? "对" : "错";
+  }
+  return String(v);
+}
+
+function choiceKeys(v: unknown): string[] {
+  if (v == null || v === "") {
+    return [];
+  }
+  if (typeof v === "object" && v && "value" in (v as object)) {
+    return choiceKeys((v as { value?: unknown }).value);
+  }
+  if (Array.isArray(v)) {
+    return v.map(String);
+  }
+  if (typeof v === "boolean") {
+    return [];
+  }
+  return [String(v)];
+}
+
+function reviewOptionsHtml(item: Record<string, unknown>): string {
+  const t = String(item.qtype || "");
+  if (t !== "single" && t !== "multiple") {
+    return "";
+  }
+  const opts = (item.options as Array<{ key?: string; text?: string }>) || [];
+  if (!opts.length) {
+    return "";
+  }
+  const mine = new Set(choiceKeys(item.response));
+  const right = new Set(choiceKeys(item.answer));
+  return opts
+    .map((o) => {
+      const picked = mine.has(String(o.key || ""));
+      const ok = right.has(String(o.key || ""));
+      const cls = ["opt", "ro", picked ? "mine" : "", ok ? "right" : ""].filter(Boolean).join(" ");
+      const tag = ok ? "正确答案" : picked ? "学生选择" : "";
+      return `<div class="${cls}"><span><b>${esc(o.key)}.</b> ${esc(o.text)}</span>${tag ? `<em>${esc(tag)}</em>` : ""}</div>`;
+    })
+    .join("");
+}
+
 function sectionAgg(items: Array<Record<string, unknown>>): { cr: number; sr: number; avg: number; pts: number } {
   let nSum = 0;
   let correct = 0;
@@ -2137,9 +2334,24 @@ function donutChartHtml(title: string, parts: Array<[string, number, string]>): 
     })
     .join(", ");
   const legend = parts
-    .map(([lab, n, color]) => `<li><i style="background:${esc(color)}"></i>${esc(lab)} ${esc(n)}</li>`)
+    .map(([lab, n, color]) => {
+      const pct = total ? ((Math.max(0, n) / total) * 100).toFixed(1) : "0.0";
+      return `<li><i style="background:${esc(color)}"></i>${esc(lab)} ${esc(n)} · ${esc(pct)}%</li>`;
+    })
     .join("");
   return `<div class="chart"><h3>${esc(title)}</h3><div class="donut-row"><div class="donut" style="background:conic-gradient(${stops})"></div><ul class="legend">${legend}</ul></div></div>`;
+}
+
+function rankTableHtml(title: string, rows: Array<Record<string, unknown>>): string {
+  const body = rows
+    .map(
+      (r) =>
+        `<tr><td class="mono">${esc(r.student_no)}</td><td>${esc(r.name)}</td><td>${esc(r.class_name)}</td><td>${esc(r.total_score)}</td></tr>`,
+    )
+    .join("");
+  return `<div class="chart"><h3>${esc(title)}</h3>
+    <table class="rank"><thead><tr><th>学号</th><th>姓名</th><th>班级</th><th>总分</th></tr></thead>
+    <tbody>${body || `<tr><td colspan="4" class="muted">暂无</td></tr>`}</tbody></table></div>`;
 }
 
 function gradesHtml(): string {
@@ -2166,13 +2378,14 @@ function gradesHtml(): string {
       <tbody>${list || `<tr><td colspan="3" class="muted">还没有已收卷任务</td></tr>`}</tbody></table></div>
     </section>
     <section class="panel">${right}</section>
-  </div>${gradeQuestionDialogHtml()}`;
+  </div>${gradeQuestionDialogHtml()}${gradePaperDialogHtml()}`;
 }
 
 function gradeRightHtml(): string {
   const status = String(task?.status || "");
   const closed = status === "closed";
   const graded = status === "graded";
+  const released = status === "released";
   const pane = (id: "board" | "students" | "questions", lab: string) =>
     `<button type="button" data-grade-pane="${id}" class="${gradePane === id ? "on" : ""}">${lab}</button>`;
   const body =
@@ -2182,6 +2395,7 @@ function gradeRightHtml(): string {
       <div class="acts">
         ${closed ? `<button class="primary" type="button" data-click="grade:${esc(taskId)}">确认批改</button>` : ""}
         ${graded ? `<button type="button" data-click="release:${esc(taskId)}">公开试卷</button>` : ""}
+        ${gradePane === "students" && gradeStu && (graded || released) ? `<button class="primary" type="button" data-click="view-paper:${esc(gradeStu)}">查看试卷</button>` : ""}
         <button type="button" data-click="csv:${esc(taskId)}">导出成绩</button>
       </div>
     </div>
@@ -2191,51 +2405,87 @@ function gradeRightHtml(): string {
 
 function gradeBoardHtml(): string {
   const a = analysis || {};
-  const bands = (a.bands as Record<string, number>) || {};
-  const qn = ((a.questions as Array<Record<string, unknown>>) || []).length;
+  const bandInfo = (a.bands as {
+    cuts?: number[];
+    labels?: string[];
+    counts?: number[];
+    below_60?: number;
+    "60_70"?: number;
+    "70_80"?: number;
+    "80_90"?: number;
+    "90_100"?: number;
+  }) || {};
+  const cuts = (analysisBands ? analysisBands.split(",") : (bandInfo.cuts || []).map(String)).slice(0, 4);
+  while (cuts.length < 4) {
+    cuts.push("");
+  }
+  const bandItems: Array<[string, number]> =
+    (bandInfo.labels || []).length > 0
+      ? (bandInfo.labels || []).map((lab, i) => [lab, Number((bandInfo.counts || [])[i] || 0)])
+      : [
+          ["<60%", Number(bandInfo.below_60 || 0)],
+          ["60-70", Number(bandInfo["60_70"] || 0)],
+          ["70-80", Number(bandInfo["70_80"] || 0)],
+          ["80-90", Number(bandInfo["80_90"] || 0)],
+          ["90-100", Number(bandInfo["90_100"] || 0)],
+        ];
+  const qn = Number(a.question_count ?? ((a.questions as Array<Record<string, unknown>>) || []).length);
   const types = ((a.type_rates as Array<Record<string, unknown>>) || []).map(
     (t): [string, number, string] => [qlabel(String(t.qtype)), Number(t.score_rate), `${fmtPct(t.score_rate)} · ${t.count}题`],
   );
   const classes = ((a.classes as Array<Record<string, unknown>>) || []).map(
     (c): [string, number, string] => [String(c.class_name || "未分班"), Number(c.pass_rate), `${fmtScore(c.average)}分 · ${fmtPct(c.pass_rate)}`],
   );
+  const topRows = (a.top_students as Array<Record<string, unknown>>) || [];
+  const bottomRows = (a.bottom_students as Array<Record<string, unknown>>) || [];
   return `<div class="dash">
-    <form name="analysis" class="row">
-      <label class="field">及格分<input name="pass_score" type="number" value="${esc(analysisPass || a.pass_score)}" /></label>
+    <form name="analysis" class="row analysis-form">
+      <label class="field compact">及格分<input name="pass_score" type="number" value="${esc(analysisPass || a.pass_score)}" /></label>
+      <label class="field compact">良好分<input name="good_score" type="number" value="${esc(analysisGood || a.good_score)}" /></label>
+      <label class="field compact">优秀分<input name="excellent_score" type="number" value="${esc(analysisExcellent || a.excellent_score)}" /></label>
+      <label class="field compact">前列%<input name="top_pct" type="number" min="1" max="100" step="0.1" value="${esc(analysisTopPct || a.top_pct)}" /></label>
+      <label class="field compact">后列%<input name="bottom_pct" type="number" min="1" max="100" step="0.1" value="${esc(analysisBottomPct || a.bottom_pct)}" /></label>
+      <label class="field band-field"><span>分数段分界</span><span class="band-cuts">
+        <input name="band1" type="number" value="${esc(cuts[0])}" />
+        <input name="band2" type="number" value="${esc(cuts[1])}" />
+        <input name="band3" type="number" value="${esc(cuts[2])}" />
+        <input name="band4" type="number" value="${esc(cuts[3])}" />
+      </span></label>
       <button type="submit">重算分析</button>
     </form>
     <div class="stats dash">
-      ${gradeStat("已交卷", String(a.count ?? 0), "students", `名册 ${a.roster_count ?? "—"}`)}
+      ${gradeStat("已交卷", String(a.count ?? 0), "students", `交卷率 ${fmtPct(a.submit_rate)}`)}
       ${gradeStat("平均分", fmtScore(a.average), "students", fmtPct(a.avg_rate))}
       ${gradeStat("及格率", fmtPct(a.pass_rate), "students", `及格线 ${fmtScore(a.pass_score, 0)}`)}
       ${gradeStat("优秀率", fmtPct(a.excellent_rate), "students", `≥${fmtScore(a.excellent_score, 0)}`)}
-      ${gradeStat("良好率", fmtPct(a.good_rate), "students")}
-      ${gradeStat("满分人数", String(a.full_mark ?? 0), "students")}
+      ${gradeStat("良好率", fmtPct(a.good_rate), "students", `≥${fmtScore(a.good_score, 0)}`)}
+      ${gradeStat("满分率", fmtPct(a.full_rate), "students", `${esc(a.full_mark ?? 0)}人`)}
       ${gradeStat("最高 / 最低", `${fmtScore(a.max, 0)} / ${fmtScore(a.min, 0)}`)}
       ${gradeStat("中位 / 标准差", `${fmtScore(a.median)} / ${fmtScore(a.stddev)}`)}
-      ${gradeStat("四分位", `${fmtScore(a.q1)} ~ ${fmtScore(a.q3)}`)}
+      ${gradeStat("变异系数", fmtPct(a.cv), "", `四分位 ${fmtScore(a.q1)} ~ ${fmtScore(a.q3)}`)}
       ${gradeStat("题目数", String(qn), "questions")}
     </div>
     <div class="charts">
-      ${vbarChartHtml("分数段人数", [
-        ["<60%", Number(bands.below_60 || 0)],
-        ["60-70", Number(bands["60_70"] || 0)],
-        ["70-80", Number(bands["70_80"] || 0)],
-        ["80-90", Number(bands["80_90"] || 0)],
-        ["90-100", Number(bands["90_100"] || 0)],
-      ])}
-      ${donutChartHtml("及格构成", [
-        ["及格", Number(a.passed || 0), "#1f7a55"],
+      ${vbarChartHtml("分数段人数", bandItems)}
+      ${donutChartHtml("成绩构成", [
+        ["优秀", Number(a.excellent_only || 0), "#1f7a55"],
+        ["良好", Number(a.good_only || 0), "#4c9a6e"],
+        ["及格", Number(a.pass_only || 0), "#c9842a"],
         ["不及格", Number(a.failed || 0), "#b42318"],
       ])}
       ${hbarChartHtml("题型得分率", types, "questions")}
       ${hbarChartHtml("班级及格率", classes, "students")}
+    </div>
+    <div class="rank-pair">
+      ${rankTableHtml(`前列 ${fmtPctNum(a.top_pct)} · ${esc(a.top_n ?? topRows.length)}人`, topRows)}
+      ${rankTableHtml(`后列 ${fmtPctNum(a.bottom_pct)} · ${esc(a.bottom_n ?? bottomRows.length)}人`, bottomRows)}
     </div>
   </div>`;
 }
 
 function gradeStudentsHtml(): string {
   const closed = String(task?.status || "") === "closed";
+  const canView = String(task?.status || "") === "graded" || String(task?.status || "") === "released";
   const rows = ((results?.results as Array<Record<string, unknown>>) || [])
     .map((r) => {
       const codes = closed
@@ -2251,7 +2501,8 @@ function gradeStudentsHtml(): string {
             )
             .join("")
         : "";
-      return `<tr>
+      const picked = canView && gradeStu === String(r.attempt_id);
+      return `<tr${canView ? ` class="pick${picked ? " on" : ""}" data-grade-stu="${esc(r.attempt_id)}"` : ""}>
         <td class="mono">${esc(r.student_no)}</td><td>${esc(r.name)}</td><td>${esc(r.class_name)}</td>
         <td>${esc(r.total_score)}</td><td>${esc(r.submitted_at || "—")}</td>
         <td>${esc((r.item_scores as unknown[])?.join(" / "))}</td>
@@ -2262,13 +2513,16 @@ function gradeStudentsHtml(): string {
       }`;
     })
     .join("");
-  return `<div class="scroll grade-detail"><table>
+  return `<div class="scroll grade-detail">${canView ? `<p class="hint">选中一名学生后，点标题栏「查看试卷」。</p>` : ""}<table>
     <thead><tr><th>学号</th><th>姓名</th><th>班级</th><th>总分</th><th>提交时间</th><th>各题</th></tr></thead>
     <tbody>${rows || `<tr><td colspan="6" class="muted">还没有交卷记录</td></tr>`}</tbody>
   </table></div>`;
 }
 
 function gradeQuestionsHtml(): string {
+  if (analysis?.live_draw) {
+    return `<div class="scroll grade-detail"><p class="hint">这份任务使用智能实时组卷，每位考生题目不同，题目分析没有对照意义。</p></div>`;
+  }
   const qs = (analysis?.questions as Array<Record<string, unknown>>) || [];
   const groups = new Map<string, Array<Record<string, unknown>>>();
   for (const q of qs) {
@@ -2325,6 +2579,43 @@ function gradeQuestionDialogHtml(): string {
         <div class="answer">${formatAnswerHtml(q)}</div>
       </div></article></div>
       <p class="hint">正确率 ${fmtPct(q.correct_rate)} · 得分率 ${fmtPct(q.score_rate)} · 均分 ${fmtScore(q.avg_score)} / ${esc(q.points)} · ${esc(q.n)} 人作答</p>
+    </div>
+  </div>`;
+}
+
+function itemCorrect(item: Record<string, unknown>): boolean {
+  return item.correct === true || (Array.isArray(item.correct) && item.correct[0] === true);
+}
+
+function gradePaperDialogHtml(): string {
+  if (!gradePaper) {
+    return "";
+  }
+  const p = gradePaper;
+  const items = (p.items as Array<Record<string, unknown>>) || [];
+  const rows = items
+    .map((it, i) => {
+      const ok = itemCorrect(it);
+      const mark = ok ? '<span class="ok">正确</span>' : '<span class="bad">待核 / 错误</span>';
+      const stem =
+        it.stem_html && String(it.stem_html).includes("<") ? String(it.stem_html) : `<p>${esc(it.stem)}</p>`;
+      return `<article class="qitem on">
+        <h3>${i + 1}. [${esc(qlabel(String(it.qtype)))}] ${mark} ${esc(it.score ?? "—")} / ${esc(it.points ?? "")}</h3>
+        <div class="question">${stem}${reviewOptionsHtml(it)}
+          <p>作答：${esc(showAns(it.response))}</p>
+          <p>参考：${esc(showAns(it.answer))}</p>
+        </div>
+      </article>`;
+    })
+    .join("");
+  return `<div class="modal" data-grade-paper-close>
+    <div class="dialog wide">
+      <div class="head-row">
+        <h2>${esc(p.name)} · ${esc(p.student_no)} · ${esc(p.class_name)}</h2>
+        <button type="button" class="ghost" data-grade-paper-close>关闭</button>
+      </div>
+      <p class="hint">${esc(p.title)} · 总分 ${esc(p.total_score)} / ${esc(p.paper_total)} · 客观 ${esc(p.objective_score)}</p>
+      <div class="qsheet paper-review">${rows || `<p class="hint">没有题目。</p>`}</div>
     </div>
   </div>`;
 }
@@ -2408,6 +2699,8 @@ window.addEventListener("resize", () => {
   window.clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(() => {
     if (token && !showPaperForm && !showQForm && !showTaskForm && !scoreEditing()) {
+      paperNeedPack = true;
+      bankNeedPack = true;
       render();
     }
   }, 120);

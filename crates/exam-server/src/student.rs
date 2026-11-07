@@ -14,8 +14,9 @@ use crate::auth::hash_token;
 use crate::db;
 use crate::error::AppError;
 use crate::paper::{
-    generate_snapshot, grade_blob, load_bank_questions, load_rule, load_task, parse_answers,
-    parse_items, parse_rfc3339, student_items, AnswersBlob, SnapshotItem, StudentAnswer, TaskRow,
+    exam_facing_answer, frozen_template_items, generate_snapshot, grade_blob, load_bank_questions,
+    load_rule, load_task, overlay_score_plan, parse_answers, parse_items, parse_rfc3339,
+    student_items, AnswersBlob, SnapshotItem, StudentAnswer, TaskRow,
 };
 use crate::tasks::maybe_auto_close;
 use crate::AppState;
@@ -61,6 +62,15 @@ pub async fn student_auth(
             "学生会话已过期",
         ));
     }
+    if let Some(want) = requested_task_id(&req) {
+        if want != sess.task_id {
+            return Err(AppError::new(
+                StatusCode::FORBIDDEN,
+                "TASK_MISMATCH",
+                "入口与当前答卷不是同一场考试",
+            ));
+        }
+    }
     req.extensions_mut().insert(StudentCtx {
         student_id: sess.student_id,
         task_id: sess.task_id,
@@ -99,6 +109,29 @@ fn student_token(req: &Request) -> Result<String, AppError> {
         "UNAUTHORIZED",
         "学生未登录",
     ))
+}
+
+fn requested_task_id(req: &Request) -> Option<String> {
+    if let Some(v) = req
+        .headers()
+        .get("x-exam-task")
+        .and_then(|v| v.to_str().ok())
+    {
+        let t = v.trim();
+        if !t.is_empty() {
+            return Some(t.to_string());
+        }
+    }
+    let query = req.uri().query()?;
+    for pair in query.split('&') {
+        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
+        if k == "t" || k == "task_id" {
+            if !v.is_empty() {
+                return Some(v.to_string());
+            }
+        }
+    }
+    None
 }
 
 pub async fn enter(
@@ -454,8 +487,19 @@ async fn create_paper(
     attempt_no: i64,
 ) -> Result<(String, String, Vec<SnapshotItem>, AnswersBlob, i64, String), AppError> {
     let rule = load_rule(state, &task.id).await?;
-    let pool = load_bank_questions(state, &rule.bank_ids).await?;
-    let items = generate_snapshot(&pool, &rule, task.total_score as u32)?;
+    let mut items = match task.paper_id.as_deref() {
+        Some(pid) => frozen_template_items(state, pid).await?,
+        None => None,
+    };
+    if let (Some(plan), Some(frozen)) = (rule.score_plan.as_ref(), items.as_mut()) {
+        overlay_score_plan(frozen, plan);
+    }
+    let items = if let Some(frozen) = items {
+        frozen
+    } else {
+        let pool = load_bank_questions(state, &rule.bank_ids).await?;
+        generate_snapshot(&pool, &rule, task.total_score as u32)?
+    };
     let paper_id = Ulid::new().to_string();
     let attempt_id = Ulid::new().to_string();
     let now = Utc::now().to_rfc3339();
@@ -663,7 +707,7 @@ fn result_payload(
                 "stem": it.stem,
                 "options": it.options,
                 "points": it.points,
-                "answer": it.answer,
+                "answer": exam_facing_answer(&it.answer, &it.option_map),
                 "response": blob.items.get(&it.question_id),
                 "score": blob.item_scores.get(&it.question_id),
                 "correct": blob.item_correct.get(&it.question_id),
