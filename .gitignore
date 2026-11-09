@@ -3,6 +3,9 @@
 /web/node_modules
 /web/dist
 *.db
+
+# Windows 便携包（交叉编译产物，可重建）
+/dist
 *.db-journal
 *.proptest-regressions
 .monkeycode-tmp-files/

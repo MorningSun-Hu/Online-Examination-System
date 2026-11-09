@@ -12,3 +12,5 @@
 | [题库规范化格式.html](./题库规范化格式.html) | 规范原文（浏览器打开即为黑白试卷样式） |
 
 讲台入口：`/teacher.html`。学生入口：`/student.html?t={任务ID}`。
+
+教室 Windows 10 / 11（64 位）可使用 `dist/exam-windows-x64.zip`：解压后双击 `start.bat`，浏览器打开 `http://127.0.0.1:8080/teacher.html`。

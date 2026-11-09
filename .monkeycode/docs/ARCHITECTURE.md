@@ -144,3 +144,5 @@ stateDiagram-v2
 - 成绩分析服务端聚合；前端图表不用第三方库
 - 必要提示用讲台对话框；调分与提前交卷开关不弹窗；打开自动批改需确认
 **目的**：单选/多选/判断始终自动判分；填空是否自动由任务 `auto_grade` 决定；编程题保持未给分
+
+Windows 教室包把 `exam-server.exe` 与 `web/` 放在同一目录，由 `start.bat` 设置 `EXAM_WEB_DIR` 和 `EXAM_DATA_DIR`。

@@ -8,7 +8,6 @@
 - 学生：用浏览器进入答卷入口，作答、续答、领取已公开试卷
 
 **当前落地**
-
 - 讲台六模块：题库管理、班级名册、试卷管理、任务管理、试卷批改、成绩分析
 - 试卷与任务分离：先组卷调分，任务引用试卷；草稿可按班拆分子任务
 - 自动批改：单选/多选/判断有答案即自动；`auto_grade` 只控制填空；编程始终手工；打开填空自动批改需确认
@@ -16,6 +15,7 @@
 - 学生公开后可看试卷分析；选择题列出选项，并标出你的选择与正确答案
 - 历史任务详情保留答卷入口
 - 长任务名摘要显示；列表题导入转义 `<`，选择题题干不再重复选项行；填空判分去掉空白
+- Windows 10 / 11 64 位便携包：`exam-server.exe` + `web/` + `start.bat`，数据写在解压目录的 `data\exam.db`
 
 ## 文档导航
 
@@ -40,7 +40,6 @@
 - [web](./模块/web.md)
 
 ## 规格
-
 - 需求：`.monkeycode/specs/2026-11-01-online-exam-system/requirements.md`
 - 设计：`.monkeycode/specs/2026-11-01-online-exam-system/design.md`
 - 任务：`.monkeycode/specs/2026-11-01-online-exam-system/tasklist.md`

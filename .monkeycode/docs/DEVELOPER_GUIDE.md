@@ -80,10 +80,40 @@ cd web && npm run build
 
 - 需求与设计在 `.monkeycode/specs/2026-11-01-online-exam-system/`
 - 项目 wiki 在 `.monkeycode/docs/`
-- 不提交 `target/`、`web/dist/`、`web/node_modules/`、`data/`、真实口令
+- 不提交 `target/`、`web/dist/`、`web/node_modules/`、`dist/`、`data/`、真实口令
 
 ## 协作
 
 - 提交身份：`git -c user.name='huchenyang' -c user.email='hcy_1987@163.com'`
 - 提交须用户明确授权；「提交」不含推送
 - 删除文件前列完整路径并等确认
+
+### Windows 64 位便携包
+
+教室机无需 Rust / Node。在 Linux 开发环境交叉编译后，把 exe、前端静态页和 `start.bat` 放在同一目录。
+
+```bash
+# 前端
+cd web
+npm run build
+cd ..
+
+# 安装目标与 MinGW（一次性）
+# rustup target add x86_64-pc-windows-gnu
+# apt 包：gcc-mingw-w64-x86-64 binutils-mingw-w64-x86-64
+
+# linker 仅用环境变量，不要写进仓库 .cargo/config.toml
+export CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc
+export CC_x86_64_pc_windows_gnu=x86_64-w64-mingw32-gcc
+export AR_x86_64_pc_windows_gnu=x86_64-w64-mingw32-ar
+cargo build -p exam-server --release --target x86_64-pc-windows-gnu
+```
+
+打包目录约定：
+
+- `exam-server.exe`：`target/x86_64-pc-windows-gnu/release/exam-server.exe`
+- `web/`：复制 `web/dist` 的内容（含 `teacher.html`、`student.html`、`assets/`）
+- `start.bat`：GBK + CRLF；设置 `EXAM_WEB_DIR`、`EXAM_DATA_DIR`；`echo` 中文后不用 ASCII 冒号
+
+产物放在 `dist/exam-windows-x64/`，zip 不入库。
+## Windows 64 位便携包
