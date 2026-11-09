@@ -76,7 +76,7 @@ scripts/start-teacher.bat
 
 ### grading
 
-**目的**：单选/多选/判断/填空自动判分；编程题保持未给分
+**目的**：单选/多选/判断始终自动判分；填空是否自动由任务 `auto_grade` 决定；编程题保持未给分
 **位置**：`crates/grading/`
 
 ### web
@@ -112,8 +112,8 @@ sequenceDiagram
     A->>S: 下发试卷快照，考试模式省略答案
     S->>A: PUT /api/student/answers
     S->>A: POST /api/student/submit
-    A->>A: 客观题自动批改
-    T->>A: 编程题给分、确认批改、公开
+    A->>A: 客观题自动批改，填空按 auto_grade
+    T->>A: 待手工题给分、确认该生批改、公开
     S->>A: GET /api/student/result
 ```
 
@@ -121,17 +121,19 @@ sequenceDiagram
 stateDiagram-v2
     [*] --> draft
     draft --> published: 教师发布
-    published --> closed: 到时或收卷
-    closed --> graded: 确认批改
+    published --> closed: 结束任务
+    closed --> graded: 待手工题均已确认
+    graded --> closed: 仍有待确认
+    closed --> released: 公开试卷
     graded --> released: 公开试卷
 ```
 
 ## 关键数据
 
-- `exam_papers`：可复用试卷模板，含 `score_plan_json`、`bank_draws_json`
-- `exam_tasks.paper_id`：任务引用试卷；`parent_id` 标记按班拆出的子任务
+- `exam_papers`：可复用试卷模板，含 `score_plan_json`、`bank_draws_json`、`live_draw`、`auto_grade`
+- `exam_tasks.paper_id`：任务引用试卷；`parent_id` 标记按班拆出的子任务；`auto_grade` 为本场开关
 - `classes` + `students`：班级名册
-- `papers` / `attempts`：每次作答的快照与答卷
+- `papers` / `attempts`：每次作答的快照与答卷；手工分在 `answers_json.code_scores`
 
 ## 设计决策
 
@@ -140,4 +142,5 @@ stateDiagram-v2
 - 同题型余数加在该题型最后几题
 - 空 `task_roster` 进入时回落到全库学生
 - 成绩分析服务端聚合；前端图表不用第三方库
-- 必要提示用讲台对话框；调分与提前交卷开关不弹窗
+- 必要提示用讲台对话框；调分与提前交卷开关不弹窗；打开自动批改需确认
+**目的**：单选/多选/判断始终自动判分；填空是否自动由任务 `auto_grade` 决定；编程题保持未给分

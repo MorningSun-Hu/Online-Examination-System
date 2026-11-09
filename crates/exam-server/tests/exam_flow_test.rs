@@ -402,6 +402,44 @@ async fn exam_enter_paper_submit_and_release() {
     .await;
     assert_eq!(st, StatusCode::OK);
 
+    let (st, closed) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/tasks/{task_id}"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    assert_eq!(closed["status"], "published");
+
+    let (st, rel_early) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{task_id}/release"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CONFLICT, "{rel_early}");
+
+    let (st, ended) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{task_id}/end"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{ended}");
+    assert_eq!(ended["status"], "graded");
+
     let (st, _) = call(
         &h.app,
         auth(
@@ -1075,6 +1113,28 @@ async fn leftover_session_cannot_read_other_task() {
         &h.app,
         auth(
             "POST",
+            &format!("/api/teacher/tasks/{published_id}/end"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{published_id}/grade"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "POST",
             &format!("/api/teacher/tasks/{published_id}/release"),
             &h.token,
             Body::empty(),
@@ -1246,8 +1306,8 @@ async fn teacher_view_paper_and_custom_analysis() {
         ),
     )
     .await;
-    assert_eq!(st, StatusCode::CONFLICT, "{peek}");
-    assert_eq!(peek["error"]["code"], "BAD_STATE");
+    assert_eq!(st, StatusCode::OK, "{peek}");
+    assert_eq!(peek["name"], "李四");
     let (st, _) = call(
         &h.app,
         auth(
@@ -1297,6 +1357,7 @@ async fn teacher_view_paper_and_custom_analysis() {
     assert_eq!(ana["bands"]["cuts"][4], 5);
     assert!(ana["submit_rate"].as_f64().unwrap() > 0.0);
     assert!(ana.get("excellent_only").is_some());
+    assert!(ana.get("excellent_plus").is_some());
     assert!(ana.get("cv").is_some());
 }
 
@@ -1464,4 +1525,463 @@ async fn fixed_paper_students_share_snapshot() {
     .await;
     assert_eq!(st, StatusCode::OK, "{ana}");
     assert_eq!(ana["live_draw"], false);
+}
+
+#[tokio::test]
+async fn collect_keeps_published_until_end() {
+    let h = harness().await;
+    let bank_id = seed_bank(&h).await;
+    let ids = seed_students(&h).await;
+    let task_id = create_ok_task(&h, &bank_id, &ids, "exam", true).await;
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{task_id}/publish"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, a) = call(
+        &h.app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/student/enter")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "class_name": "一班",
+                    "student_no": "001",
+                    "client_id": "pc-1",
+                    "task_id": task_id
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{a}");
+    let (st, closed) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{task_id}/close"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{closed}");
+    assert_eq!(closed["status"], "published");
+    let (st, b) = call(
+        &h.app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/student/enter")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "class_name": "一班",
+                    "student_no": "003",
+                    "client_id": "pc-3",
+                    "task_id": task_id
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{b}");
+    let (st, ana) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/tasks/{task_id}/analysis"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{ana}");
+    assert!(ana["count"].as_i64().unwrap_or(0) >= 1);
+    let (st, ended) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{task_id}/end"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{ended}");
+    assert_eq!(ended["status"], "graded");
+    let (st, c) = call(
+        &h.app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/student/enter")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "class_name": "一班",
+                    "student_no": "002",
+                    "client_id": "pc-2",
+                    "task_id": task_id
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(st, StatusCode::FORBIDDEN, "{c}");
+}
+
+#[tokio::test]
+async fn auto_grade_off_needs_manual_then_regrade() {
+    let h = harness().await;
+    let bank_id = seed_bank(&h).await;
+    let ids = seed_students(&h).await;
+    for i in 0..2 {
+        let (st, _) = call(
+            &h.app,
+            auth(
+                "POST",
+                &format!("/api/teacher/banks/{bank_id}/questions"),
+                &h.token,
+                Body::from(
+                    json!({
+                        "qtype": "fill",
+                        "stem": format!("填空{i}"),
+                        "answer": {"kind":"fill","value":["hello"]}
+                    })
+                    .to_string(),
+                ),
+            ),
+        )
+        .await;
+        assert_eq!(st, StatusCode::CREATED);
+    }
+    let (st, v) = call(
+        &h.app,
+        auth(
+            "POST",
+            "/api/teacher/tasks",
+            &h.token,
+            Body::from(
+                json!({
+                    "title": "手工批改",
+                    "mode": "exam",
+                    "duration_minutes": 60,
+                    "allow_early_submit": true,
+                    "total_score": 10,
+                    "student_ids": ids,
+                    "auto_grade": false,
+                    "rule": {
+                        "bank_ids": [bank_id],
+                        "type_counts": {"fill": 2}
+                    }
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    assert_eq!(v["auto_grade"], false);
+    let task_id = v["id"].as_str().unwrap().to_string();
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{task_id}/publish"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, entered) = call(
+        &h.app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/student/enter")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "class_name": "一班",
+                    "name": "李四",
+                    "client_id": "pc-auto",
+                    "task_id": task_id
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{entered}");
+    let tok = entered["token"].as_str().unwrap().to_string();
+    let qid = entered["items"][0]["question_id"].as_str().unwrap().to_string();
+    let (st, _) = call(
+        &h.app,
+        student_req(
+            "PUT",
+            "/api/student/answers",
+            &tok,
+            Body::from(json!({"answers": { qid.clone(): {"kind":"fill","value":"hello"} }}).to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (st, _) = call(
+        &h.app,
+        student_req("POST", "/api/student/submit", &tok, Body::empty()),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, rs) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/tasks/{task_id}/results"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{rs}");
+    let row = &rs["results"][0];
+    let items = row["code_items"].as_array().unwrap();
+    assert_eq!(items.len(), 2);
+    let attempt = row["attempt_id"].as_str().unwrap();
+    let (st, conf) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/attempts/{attempt}/confirm-marking"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CONFLICT, "{conf}");
+    let mut scores = serde_json::Map::new();
+    for it in items {
+        scores.insert(
+            it["question_id"].as_str().unwrap().to_string(),
+            json!(it["points"].as_u64().unwrap_or(0)),
+        );
+    }
+    let (st, scored) = call(
+        &h.app,
+        auth(
+            "PUT",
+            &format!("/api/teacher/attempts/{attempt}/code-scores"),
+            &h.token,
+            Body::from(json!({"scores": scores}).to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{scored}");
+    let (st, conf) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/attempts/{attempt}/confirm-marking"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{conf}");
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "PATCH",
+            &format!("/api/teacher/tasks/{task_id}"),
+            &h.token,
+            Body::from(json!({"auto_grade": true}).to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (st, rs) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/tasks/{task_id}/results"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{rs}");
+    assert!(rs["results"][0]["code_items"].as_array().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn paper_with_code_defaults_auto_grade_off() {
+    let h = harness().await;
+    let bank_id = seed_bank(&h).await;
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/banks/{bank_id}/questions"),
+            &h.token,
+            Body::from(
+                json!({
+                    "qtype": "code",
+                    "stem": "编程题",
+                    "answer": {"kind":"code","value":""}
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED);
+    let (st, paper) = call(
+        &h.app,
+        auth(
+            "POST",
+            "/api/teacher/papers",
+            &h.token,
+            Body::from(
+                json!({
+                    "title": "含编程",
+                    "total_score": 10,
+                    "rule": {
+                        "bank_ids": [bank_id],
+                        "type_counts": {"code": 1}
+                    }
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{paper}");
+    assert_eq!(paper["auto_grade"], true);
+    let (st, paper2) = call(
+        &h.app,
+        auth(
+            "POST",
+            "/api/teacher/papers",
+            &h.token,
+            Body::from(
+                json!({
+                    "title": "无编程",
+                    "total_score": 10,
+                    "rule": {
+                        "bank_ids": [bank_id],
+                        "type_counts": {"single": 2}
+                    }
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{paper2}");
+    assert_eq!(paper2["auto_grade"], true);
+}
+
+#[tokio::test]
+async fn auto_grade_off_keeps_choice_auto() {
+    let h = harness().await;
+    let bank_id = seed_bank(&h).await;
+    let ids = seed_students(&h).await;
+    let (st, v) = call(
+        &h.app,
+        auth(
+            "POST",
+            "/api/teacher/tasks",
+            &h.token,
+            Body::from(
+                json!({
+                    "title": "客观题仍自动",
+                    "mode": "exam",
+                    "duration_minutes": 60,
+                    "allow_early_submit": true,
+                    "total_score": 10,
+                    "student_ids": ids,
+                    "auto_grade": false,
+                    "rule": {
+                        "bank_ids": [bank_id],
+                        "type_counts": {"single": 2, "judge": 1}
+                    }
+                })
+                .to_string(),
+            ),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::CREATED, "{v}");
+    let task_id = v["id"].as_str().unwrap().to_string();
+    let (st, _) = call(
+        &h.app,
+        auth(
+            "POST",
+            &format!("/api/teacher/tasks/{task_id}/publish"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, entered) = call(
+        &h.app,
+        Request::builder()
+            .method("POST")
+            .uri("/api/student/enter")
+            .header("content-type", "application/json")
+            .body(Body::from(
+                json!({
+                    "class_name": "一班",
+                    "name": "李四",
+                    "client_id": "pc-choice",
+                    "task_id": task_id
+                })
+                .to_string(),
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{entered}");
+    let tok = entered["token"].as_str().unwrap().to_string();
+    let qid = entered["items"][0]["question_id"].as_str().unwrap().to_string();
+    let (st, _) = call(
+        &h.app,
+        student_req(
+            "PUT",
+            "/api/student/answers",
+            &tok,
+            Body::from(json!({"answers": { qid.clone(): {"kind":"single","value":"B"} }}).to_string()),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::NO_CONTENT);
+    let (st, _) = call(
+        &h.app,
+        student_req("POST", "/api/student/submit", &tok, Body::empty()),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK);
+    let (st, rs) = call(
+        &h.app,
+        auth(
+            "GET",
+            &format!("/api/teacher/tasks/{task_id}/results"),
+            &h.token,
+            Body::empty(),
+        ),
+    )
+    .await;
+    assert_eq!(st, StatusCode::OK, "{rs}");
+    let row = &rs["results"][0];
+    assert!(row["code_items"].as_array().unwrap().is_empty());
+    assert!(row["total_score"].as_i64().is_some());
 }

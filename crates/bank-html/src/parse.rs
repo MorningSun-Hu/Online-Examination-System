@@ -172,8 +172,15 @@ fn parse_list_item(
 ) -> Result<Question, String> {
     let inner = inner_html(el);
     let (body, answer_raw) = split_answer_html(&inner).ok_or_else(|| "缺少答案".to_string())?;
-    let body_text = normalize_text(&strip_tags(&body));
-    let answer_text = normalize_text(&strip_tags(&answer_raw));
+    let full_text = normalize_text(&el.text().collect::<String>());
+    let (body_text, answer_text) = split_answer_html(&full_text)
+        .map(|(b, a)| (normalize_text(&b), normalize_text(&a)))
+        .unwrap_or_else(|| {
+            (
+                normalize_text(&strip_tags(&body)),
+                normalize_text(&strip_tags(&answer_raw)),
+            )
+        });
     let options = split_options(&body_text);
     let stem = if options.is_empty() {
         body_text
@@ -189,7 +196,11 @@ fn parse_list_item(
     Ok(Question {
         qtype,
         stem,
-        stem_html: body.trim().to_string(),
+        stem_html: if options.is_empty() {
+            body.trim().to_string()
+        } else {
+            strip_inline_options_html(body.trim())
+        },
         options,
         answer,
         source: String::new(),
@@ -294,14 +305,16 @@ fn split_fill_answers(text: &str) -> Vec<String> {
     let mut parts: Vec<String> = Vec::new();
     for chunk in t.split('|') {
         for sub in chunk.split("或") {
-            let cleaned = sub
-                .replace('（', " ")
-                .replace('）', " ")
-                .replace('“', "")
-                .replace('”', "");
-            let v = normalize_text(&cleaned);
-            if !v.is_empty() && v != "或" {
-                parts.push(v);
+            for piece in sub.split('、') {
+                let cleaned = piece
+                    .replace('（', " ")
+                    .replace('）', " ")
+                    .replace('“', "")
+                    .replace('”', "");
+                let v = normalize_text(&cleaned);
+                if !v.is_empty() && v != "或" {
+                    parts.push(v);
+                }
             }
         }
     }
@@ -384,10 +397,25 @@ fn inner_html(el: scraper::ElementRef<'_>) -> String {
         if let Some(e) = scraper::ElementRef::wrap(child) {
             s.push_str(&e.html());
         } else if let Some(t) = child.value().as_text() {
-            s.push_str(t);
+            s.push_str(&escape_text(t));
         }
     }
     s
+}
+
+fn escape_text(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+fn strip_inline_options_html(html: &str) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| Regex::new(r"(?i)<br\s*/?>\s*A\s*[.．]").expect("opt br"));
+    if let Some(m) = re.find(html) {
+        return html[..m.start()].trim_end().to_string();
+    }
+    html.trim().to_string()
 }
 
 fn extract_pre(html: &str) -> Option<String> {

@@ -101,6 +101,68 @@ fn fill_keeps_ascii_parentheses() {
 }
 
 #[test]
+fn fill_or_and_enumeration_are_alternatives() {
+    let html = r#"<!DOCTYPE html><html><body>
+<h2>三、填空题</h2>
+<ol>
+<li>print(________)<br>答案：i ** 2（或 i * i）</li>
+<li>另一空 ________<br>答案：foo、bar</li>
+</ol>
+</body></html>"#;
+    let report = parse_html(html, "fill-alt.html").expect("parse");
+    assert_eq!(report.success.len(), 2);
+    assert_eq!(
+        report.success[0].answer,
+        Answer::Fill(vec!["i ** 2".into(), "i * i".into()])
+    );
+    assert_eq!(
+        report.success[1].answer,
+        Answer::Fill(vec!["foo".into(), "bar".into()])
+    );
+}
+
+#[test]
+fn comparison_operator_in_code_sample_stays_intact() {
+    let html = read("python-basics-200.html");
+    let report = parse_html(&html, "python-basics-200.html").expect("parse");
+    let q = report
+        .success
+        .iter()
+        .find(|q| q.stem.contains(r#"print("a<b")"#))
+        .expect("comparison question");
+    assert!(
+        q.stem.contains(r#"下一行 print("结束") 与 if 对齐"#),
+        "stem truncated: {}",
+        q.stem
+    );
+    let opts: Vec<(&str, &str)> = q
+        .options
+        .iter()
+        .map(|o| (o.key.as_str(), o.text.as_str()))
+        .collect();
+    assert_eq!(
+        opts,
+        vec![
+            ("A", "只输出 a<b"),
+            ("B", "只输出 结束"),
+            ("C", "两行都输出"),
+            ("D", "报错"),
+        ]
+    );
+    assert_eq!(q.answer, Answer::Single("C".into()));
+    assert!(
+        q.stem_html.contains("a&lt;b"),
+        "stem_html should keep escaped lt: {}",
+        q.stem_html
+    );
+    assert!(
+        !q.stem_html.contains("A."),
+        "stem_html should drop inline options: {}",
+        q.stem_html
+    );
+}
+
+#[test]
 fn round_trip_spec_sample() {
     let html = read("spec-sample.html");
     let report = parse_html(&html, "spec-sample.html").unwrap();

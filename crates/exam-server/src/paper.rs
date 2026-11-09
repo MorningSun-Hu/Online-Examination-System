@@ -70,6 +70,8 @@ pub struct AnswersBlob {
     pub item_scores: HashMap<String, Option<u32>>,
     #[serde(default)]
     pub item_correct: HashMap<String, Option<bool>>,
+    #[serde(default)]
+    pub marking_confirmed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +89,7 @@ pub struct TaskRow {
     pub paper_id: Option<String>,
     pub parent_id: Option<String>,
     pub starts_at: Option<String>,
+    pub auto_grade: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -136,7 +139,7 @@ pub fn qtype_map_to_json<T: Serialize>(m: &HashMap<QType, T>) -> Value {
 
 pub async fn load_task(state: &AppState, id: &str) -> Result<TaskRow, AppError> {
     let row = sqlx::query(
-        r#"SELECT id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, published_at, closes_at, paper_id, parent_id, starts_at
+        r#"SELECT id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, published_at, closes_at, paper_id, parent_id, starts_at, auto_grade
            FROM exam_tasks WHERE id = ?"#,
     )
     .bind(id)
@@ -161,6 +164,7 @@ pub fn task_from_row(row: sqlx::sqlite::SqliteRow) -> TaskRow {
         paper_id: row.try_get("paper_id").ok().flatten(),
         parent_id: row.try_get("parent_id").ok().flatten(),
         starts_at: row.try_get("starts_at").ok().flatten(),
+        auto_grade: row.try_get::<i64, _>("auto_grade").unwrap_or(1) != 0,
     }
 }
 
@@ -525,6 +529,27 @@ pub fn parse_answers(raw: &str) -> AnswersBlob {
     serde_json::from_str(raw).unwrap_or_default()
 }
 
+pub fn answer_is_blank(answer: &Answer) -> bool {
+    match answer {
+        Answer::Single(s) => s.trim().is_empty(),
+        Answer::Multiple(vs) => vs.iter().all(|s| s.trim().is_empty()),
+        Answer::Judge(_) => false,
+        Answer::Fill(vs) => vs.iter().all(|s| s.trim().is_empty()),
+        Answer::Code(s) => s.trim().is_empty(),
+    }
+}
+
+pub fn needs_manual(item: &SnapshotItem, auto_grade: bool) -> bool {
+    if answer_is_blank(&item.answer) {
+        return true;
+    }
+    match item.qtype {
+        QType::Single | QType::Multiple | QType::Judge => false,
+        QType::Fill => !auto_grade,
+        QType::Code => true,
+    }
+}
+
 pub fn exam_facing_answer(answer: &Answer, option_map: &[(String, String)]) -> Answer {
     match answer {
         Answer::Single(k) => {
@@ -536,21 +561,28 @@ pub fn exam_facing_answer(answer: &Answer, option_map: &[(String, String)]) -> A
     }
 }
 
-pub fn grade_blob(items: &[SnapshotItem], blob: &mut AnswersBlob) -> (Option<i64>, Option<i64>, bool) {
+pub fn grade_blob(
+    items: &[SnapshotItem],
+    blob: &mut AnswersBlob,
+    auto_grade: bool,
+) -> (Option<i64>, Option<i64>, bool) {
     let mut objective: i64 = 0;
-    let mut pending_code = false;
+    let mut pending_manual = false;
     let mut total: i64 = 0;
     let mut total_known = true;
     for it in items {
-        if it.qtype == QType::Code {
-            pending_code = blob.code_scores.get(&it.question_id).is_none();
+        if needs_manual(it, auto_grade) {
             if let Some(&s) = blob.code_scores.get(&it.question_id) {
                 blob.item_scores
                     .insert(it.question_id.clone(), Some(s));
                 blob.item_correct
                     .insert(it.question_id.clone(), Some(s == it.points));
                 total += s as i64;
+                if it.qtype != QType::Code {
+                    objective += s as i64;
+                }
             } else {
+                pending_manual = true;
                 blob.item_scores.insert(it.question_id.clone(), None);
                 blob.item_correct.insert(it.question_id.clone(), None);
                 total_known = false;
@@ -585,7 +617,7 @@ pub fn grade_blob(items: &[SnapshotItem], blob: &mut AnswersBlob) -> (Option<i64
     (
         Some(objective),
         if total_known { Some(total) } else { Some(objective) },
-        pending_code,
+        pending_manual,
     )
 }
 

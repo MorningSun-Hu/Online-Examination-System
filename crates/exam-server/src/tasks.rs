@@ -12,7 +12,7 @@ use ulid::Ulid;
 use crate::error::AppError;
 use crate::paper::{
     check_pool, compute_score_plan, grade_blob, load_bank_questions, load_rule, load_task,
-    parse_answers, parse_items, qtype_map_to_json, task_expired, task_from_row, TaskRow,
+    needs_manual, parse_answers, parse_items, qtype_map_to_json, task_expired, task_from_row, TaskRow,
 };
 use crate::students::{missing_student_ids, student_ids_for_classes};
 use crate::AppState;
@@ -52,6 +52,8 @@ pub struct CreateTaskBody {
     pub paper_id: Option<String>,
     pub parent_id: Option<String>,
     pub starts_at: Option<String>,
+    #[serde(default)]
+    pub auto_grade: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -60,6 +62,8 @@ pub struct PatchTaskBody {
     pub score_plan: Option<HashMap<String, Vec<u32>>>,
     pub total_score: Option<i64>,
     pub pass_score: Option<i64>,
+    #[serde(default)]
+    pub auto_grade: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -79,6 +83,7 @@ pub struct TaskOut {
     pub parent_id: Option<String>,
     pub starts_at: Option<String>,
     pub student_path: String,
+    pub auto_grade: bool,
 }
 
 fn to_out(t: &TaskRow, score_plan: Value) -> TaskOut {
@@ -98,12 +103,13 @@ fn to_out(t: &TaskRow, score_plan: Value) -> TaskOut {
         parent_id: t.parent_id.clone(),
         starts_at: t.starts_at.clone(),
         student_path: format!("/student.html?t={}", t.id),
+        auto_grade: t.auto_grade,
     }
 }
 
 pub async fn list_tasks(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
     let rows = sqlx::query(
-        "SELECT id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, published_at, closes_at, paper_id, parent_id, starts_at FROM exam_tasks ORDER BY id DESC",
+        "SELECT id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, published_at, closes_at, paper_id, parent_id, starts_at, auto_grade FROM exam_tasks ORDER BY id DESC",
     )
     .fetch_all(&state.pool)
     .await?;
@@ -126,6 +132,7 @@ pub async fn list_tasks(State(state): State<AppState>) -> Result<Json<Value>, Ap
                 "parent_id": t.parent_id,
                 "starts_at": t.starts_at,
                 "student_path": format!("/student.html?t={}", t.id),
+                "auto_grade": t.auto_grade,
             })
         })
         .collect();
@@ -161,18 +168,19 @@ pub async fn create_task(
         .with_details(json!({ "ids": missing })));
     }
     let paper_id = body.paper_id.clone();
-    let (total, pass, paper_title) = if let Some(pid) = paper_id.as_deref() {
-        let (p_total, p_pass, p_title) = crate::papers::paper_totals(&state, pid).await?;
+    let (total, pass, paper_title, paper_auto) = if let Some(pid) = paper_id.as_deref() {
+        let (p_total, p_pass, p_title, p_auto) = crate::papers::paper_totals(&state, pid).await?;
         let total = body.total_score.unwrap_or(p_total);
         let pass = body.pass_score.unwrap_or(p_pass);
-        (total, pass, Some(p_title))
+        (total, pass, Some(p_title), p_auto)
     } else {
         let total = body.total_score.unwrap_or(0);
         if total <= 0 {
             return Err(AppError::new(StatusCode::BAD_REQUEST, "BAD_REQUEST", "总分必须为正整数"));
         }
         let pass = body.pass_score.unwrap_or(total * 60 / 100);
-        (total, pass, None)
+        let from_rule = true;
+        (total, pass, None, from_rule)
     };
     let title = if body.title.trim().is_empty() {
         paper_title.unwrap_or_else(|| "未命名任务".into())
@@ -180,9 +188,16 @@ pub async fn create_task(
         body.title.trim().to_string()
     };
     let id = Ulid::new().to_string();
+    let auto_grade = if let Some(v) = body.auto_grade {
+        v
+    } else if let Some(parent) = body.parent_id.as_deref() {
+        load_task(&state, parent).await?.auto_grade
+    } else {
+        paper_auto
+    };
     sqlx::query(
-        r#"INSERT INTO exam_tasks(id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, paper_id, parent_id, starts_at)
-           VALUES(?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)"#,
+        r#"INSERT INTO exam_tasks(id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, paper_id, parent_id, starts_at, auto_grade)
+           VALUES(?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)"#,
     )
     .bind(&id)
     .bind(&title)
@@ -194,6 +209,7 @@ pub async fn create_task(
     .bind(&paper_id)
     .bind(&body.parent_id)
     .bind(&body.starts_at)
+    .bind(if auto_grade { 1 } else { 0 })
     .execute(&state.pool)
     .await?;
     if let Some(pid) = paper_id.as_deref() {
@@ -436,6 +452,21 @@ pub async fn patch_task(
             .execute(&state.pool)
             .await?;
     }
+    if let Some(v) = body.auto_grade {
+        if task.status == "released" {
+            return Err(AppError::new(
+                StatusCode::CONFLICT,
+                "BAD_STATE",
+                "试卷已公开，不能再改批改方式",
+            ));
+        }
+        sqlx::query("UPDATE exam_tasks SET auto_grade = ? WHERE id = ?")
+            .bind(if v { 1 } else { 0 })
+            .bind(&id)
+            .execute(&state.pool)
+            .await?;
+        regrade_submitted(&state, &id).await?;
+    }
     if body.score_plan.is_some() || body.total_score.is_some() || body.pass_score.is_some() {
         apply_score_patch(&state, &task, &body).await?;
     }
@@ -485,7 +516,22 @@ pub async fn close(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<TaskOut>, AppError> {
-    close_task(&state, &id).await?;
+    collect_task(&state, &id).await?;
+    let task = load_task(&state, &id).await?;
+    let rule = load_rule(&state, &id).await.ok();
+    let plan = rule
+        .and_then(|r| r.score_plan)
+        .as_ref()
+        .map(qtype_map_to_json)
+        .unwrap_or(Value::Null);
+    Ok(Json(to_out(&task, plan)))
+}
+
+pub async fn end(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<TaskOut>, AppError> {
+    end_task(&state, &id).await?;
     let task = load_task(&state, &id).await?;
     let rule = load_rule(&state, &id).await.ok();
     let plan = rule
@@ -502,13 +548,13 @@ pub async fn confirm_grade(
 ) -> Result<Json<TaskOut>, AppError> {
     let task = load_task(&state, &id).await?;
     if task.status != "closed" && task.status != "graded" {
-        return Err(AppError::new(StatusCode::CONFLICT, "BAD_STATE", "收卷后才能确认批改"));
+        return Err(AppError::new(StatusCode::CONFLICT, "BAD_STATE", "结束后才能提交批改"));
     }
     if pending_code(&state, &id).await? {
         return Err(AppError::new(
             StatusCode::CONFLICT,
             "PENDING_CODE",
-            "仍有编程题待给分",
+            "仍有学生未确认批改",
         ));
     }
     sqlx::query("UPDATE exam_tasks SET status='graded' WHERE id=?")
@@ -523,8 +569,23 @@ pub async fn release(
     Path(id): Path<String>,
 ) -> Result<Json<Value>, AppError> {
     let task = load_task(&state, &id).await?;
-    if task.status != "graded" {
-        return Err(AppError::new(StatusCode::CONFLICT, "BAD_STATE", "批改完成后才能公开试卷"));
+    if task.status != "closed" && task.status != "graded" {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "BAD_STATE",
+            if task.status == "published" || task.status == "draft" {
+                "结束后才能公开试卷"
+            } else {
+                "批改完成后才能公开试卷"
+            },
+        ));
+    }
+    if pending_code(&state, &id).await? {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "PENDING_CODE",
+            "还有学生未确认批改，不能公开试卷",
+        ));
     }
     sqlx::query("UPDATE exam_tasks SET status='released' WHERE id=?")
         .bind(&id)
@@ -588,6 +649,7 @@ pub async fn monitor(
             "status": task.status,
             "allow_early_submit": task.allow_early_submit,
             "closes_at": task.closes_at,
+            "auto_grade": task.auto_grade,
         },
         "students": students,
     })))
@@ -600,16 +662,40 @@ pub async fn maybe_auto_close(state: &AppState, id: &str) -> Result<(), AppError
         Err(e) => return Err(e),
     };
     if task_expired(&task) {
-        close_task(state, id).await?;
+        submit_in_progress(state, id).await?;
     }
     Ok(())
 }
 
-pub async fn close_task(state: &AppState, id: &str) -> Result<(), AppError> {
+pub async fn collect_task(state: &AppState, id: &str) -> Result<(), AppError> {
     let task = load_task(state, id).await?;
     if task.status != "published" {
         return Ok(());
     }
+    submit_in_progress(state, id).await
+}
+
+pub async fn end_task(state: &AppState, id: &str) -> Result<(), AppError> {
+    let task = load_task(state, id).await?;
+    if task.status != "published" {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "BAD_STATE",
+            "只有进行中的任务可以结束",
+        ));
+    }
+    submit_in_progress(state, id).await?;
+    sqlx::query("UPDATE exam_tasks SET status=? WHERE id=?")
+        .bind("closed")
+        .bind(id)
+        .execute(&state.pool)
+        .await?;
+    maybe_mark_graded(state, id).await?;
+    Ok(())
+}
+
+async fn submit_in_progress(state: &AppState, id: &str) -> Result<(), AppError> {
+    let task = load_task(state, id).await?;
     let papers = sqlx::query(
         "SELECT p.id, p.items_json, a.id AS attempt_id, a.status, a.answers_json
          FROM papers p JOIN attempts a ON a.paper_id = p.id
@@ -622,7 +708,7 @@ pub async fn close_task(state: &AppState, id: &str) -> Result<(), AppError> {
     for row in papers {
         let items = parse_items(&row.get::<String, _>("items_json"));
         let mut blob = parse_answers(&row.get::<String, _>("answers_json"));
-        let (obj, total, _) = grade_blob(&items, &mut blob);
+        let (obj, total, _) = grade_blob(&items, &mut blob, task.auto_grade);
         let aid: String = row.get("attempt_id");
         sqlx::query(
             "UPDATE attempts SET status='submitted', answers_json=?, objective_score=?, total_score=?, submitted_at=? WHERE id=?",
@@ -635,20 +721,11 @@ pub async fn close_task(state: &AppState, id: &str) -> Result<(), AppError> {
         .execute(&state.pool)
         .await?;
     }
-    let next = if pending_code(state, id).await? {
-        "closed"
-    } else {
-        "graded"
-    };
-    sqlx::query("UPDATE exam_tasks SET status=? WHERE id=?")
-        .bind(next)
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
     Ok(())
 }
 
 async fn pending_code(state: &AppState, task_id: &str) -> Result<bool, AppError> {
+    let task = load_task(state, task_id).await?;
     let rows = sqlx::query(
         "SELECT p.items_json, a.answers_json FROM papers p JOIN attempts a ON a.paper_id=p.id WHERE p.task_id=? AND a.status='submitted'",
     )
@@ -658,13 +735,62 @@ async fn pending_code(state: &AppState, task_id: &str) -> Result<bool, AppError>
     for row in rows {
         let items = parse_items(&row.get::<String, _>("items_json"));
         let blob = parse_answers(&row.get::<String, _>("answers_json"));
-        for it in items {
-            if it.qtype == bank_html::QType::Code && !blob.code_scores.contains_key(&it.question_id) {
-                return Ok(true);
+        let mut has_manual = false;
+        for it in &items {
+            if needs_manual(it, task.auto_grade) {
+                has_manual = true;
+                if !blob.code_scores.contains_key(&it.question_id) {
+                    return Ok(true);
+                }
             }
+        }
+        if has_manual && !blob.marking_confirmed {
+            return Ok(true);
         }
     }
     Ok(false)
+}
+
+pub async fn maybe_mark_graded(state: &AppState, id: &str) -> Result<(), AppError> {
+    let task = load_task(state, id).await?;
+    if task.status != "closed" && task.status != "graded" {
+        return Ok(());
+    }
+    let pending = pending_code(state, id).await?;
+    let next = if pending { "closed" } else { "graded" };
+    if task.status != next {
+        sqlx::query("UPDATE exam_tasks SET status=? WHERE id=?")
+            .bind(next)
+            .bind(id)
+            .execute(&state.pool)
+            .await?;
+    }
+    Ok(())
+}
+
+async fn regrade_submitted(state: &AppState, task_id: &str) -> Result<(), AppError> {
+    let task = load_task(state, task_id).await?;
+    let rows = sqlx::query(
+        "SELECT a.id, p.items_json, a.answers_json FROM papers p JOIN attempts a ON a.paper_id=p.id WHERE p.task_id=? AND a.status='submitted'",
+    )
+    .bind(task_id)
+    .fetch_all(&state.pool)
+    .await?;
+    for row in rows {
+        let items = parse_items(&row.get::<String, _>("items_json"));
+        let mut blob = parse_answers(&row.get::<String, _>("answers_json"));
+        blob.marking_confirmed = false;
+        let (obj, total, _) = grade_blob(&items, &mut blob, task.auto_grade);
+        sqlx::query("UPDATE attempts SET answers_json=?, objective_score=?, total_score=? WHERE id=?")
+            .bind(serde_json::to_string(&blob).unwrap_or_else(|_| "{}".into()))
+            .bind(obj)
+            .bind(total)
+            .bind(row.get::<String, _>("id"))
+            .execute(&state.pool)
+            .await?;
+    }
+    maybe_mark_graded(state, task_id).await?;
+    Ok(())
 }
 
 async fn clone_rules(state: &AppState, from_task: &str, to_task: &str) -> Result<(), AppError> {
@@ -750,8 +876,8 @@ pub async fn split_by_class(
         let child_id = Ulid::new().to_string();
         let title = format!("{} · {}", parent.title, class);
         sqlx::query(
-            r#"INSERT INTO exam_tasks(id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, paper_id, parent_id, starts_at)
-               VALUES(?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?)"#,
+            r#"INSERT INTO exam_tasks(id, title, mode, status, duration_minutes, allow_early_submit, total_score, pass_score, paper_id, parent_id, starts_at, auto_grade)
+               VALUES(?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)"#,
         )
         .bind(&child_id)
         .bind(&title)
@@ -763,6 +889,7 @@ pub async fn split_by_class(
         .bind(&parent.paper_id)
         .bind(&id)
         .bind(&parent.starts_at)
+        .bind(if parent.auto_grade { 1 } else { 0 })
         .execute(&state.pool)
         .await?;
         clone_rules(&state, &id, &child_id).await?;

@@ -115,5 +115,5 @@ pub fn normalize_fill(s: &str) -> String {
             }
         })
         .collect();
-    half.split_whitespace().collect::<Vec<_>>().join(" ")
+    half.chars().filter(|c| !c.is_whitespace()).collect()
 }

@@ -642,7 +642,7 @@ pub async fn submit(
             return Err(AppError::new(StatusCode::CONFLICT, "SUBMITTED", "已经提交过"));
         }
     }
-    let (obj, total, _) = grade_blob(&items, &mut blob);
+    let (obj, total, _) = grade_blob(&items, &mut blob, task.auto_grade);
     let now = Utc::now().to_rfc3339();
     sqlx::query(
         "UPDATE attempts SET status='submitted', answers_json=?, objective_score=?, total_score=?, submitted_at=? WHERE id=?",

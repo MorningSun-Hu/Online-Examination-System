@@ -7,7 +7,7 @@ use sqlx::Row;
 use std::collections::HashMap;
 
 use crate::error::AppError;
-use crate::paper::{exam_facing_answer, grade_blob, load_task, parse_answers, parse_items};
+use crate::paper::{exam_facing_answer, grade_blob, load_task, needs_manual, parse_answers, parse_items};
 use crate::AppState;
 
 #[derive(Deserialize)]
@@ -39,15 +39,24 @@ pub async fn code_scores(
     .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "NOT_FOUND", "答卷不存在"))?;
     let items = parse_items(&row.get::<String, _>("items_json"));
     let mut blob = parse_answers(&row.get::<String, _>("answers_json"));
+    let mut changed = false;
+    let task = load_task(&state, &row.get::<String, _>("task_id")).await?;
+    if task.status == "released" {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "BAD_STATE",
+            "试卷已公开，不能再改批改结果",
+        ));
+    }
     for (qid, score) in &body.scores {
         let item = items.iter().find(|i| &i.question_id == qid).ok_or_else(|| {
             AppError::new(StatusCode::BAD_REQUEST, "BAD_REQUEST", "题目不在该试卷中")
         })?;
-        if item.qtype != bank_html::QType::Code {
+        if !needs_manual(item, task.auto_grade) {
             return Err(AppError::new(
                 StatusCode::BAD_REQUEST,
                 "BAD_REQUEST",
-                "只能给编程题打分",
+                "该题当前为自动批改，不能手工给分",
             ));
         }
         if *score > item.points {
@@ -57,9 +66,15 @@ pub async fn code_scores(
                 format!("分数不能超过该题满分 {}", item.points),
             ));
         }
+        if blob.code_scores.get(qid) != Some(score) {
+            changed = true;
+        }
         blob.code_scores.insert(qid.clone(), *score);
     }
-    let (obj, total, _) = grade_blob(&items, &mut blob);
+    if changed {
+        blob.marking_confirmed = false;
+    }
+    let (obj, total, _) = grade_blob(&items, &mut blob, task.auto_grade);
     sqlx::query("UPDATE attempts SET answers_json=?, objective_score=?, total_score=? WHERE id=?")
         .bind(serde_json::to_string(&blob).unwrap_or_else(|_| "{}".into()))
         .bind(obj)
@@ -68,6 +83,73 @@ pub async fn code_scores(
         .execute(&state.pool)
         .await?;
     Ok(Json(json!({"objective_score": obj, "total_score": total})))
+}
+
+pub async fn confirm_marking(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<Value>, AppError> {
+    let row = sqlx::query(
+        "SELECT a.id, a.status, a.answers_json, p.items_json, p.task_id FROM attempts a JOIN papers p ON p.id=a.paper_id WHERE a.id=?",
+    )
+    .bind(&id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::new(StatusCode::NOT_FOUND, "NOT_FOUND", "答卷不存在"))?;
+    let attempt_status: String = row.get("status");
+    if attempt_status != "submitted" {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "NOT_SUBMITTED",
+            "该学生尚未交卷",
+        ));
+    }
+    let task = load_task(&state, &row.get::<String, _>("task_id")).await?;
+    if task.status == "released" {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "BAD_STATE",
+            "试卷已公开，不能再改批改结果",
+        ));
+    }
+    let items = parse_items(&row.get::<String, _>("items_json"));
+    let mut blob = parse_answers(&row.get::<String, _>("answers_json"));
+    let manuals: Vec<_> = items
+        .iter()
+        .filter(|it| needs_manual(it, task.auto_grade))
+        .collect();
+    if manuals.is_empty() {
+        return Err(AppError::new(
+            StatusCode::BAD_REQUEST,
+            "BAD_REQUEST",
+            "该生没有需要确认的题目",
+        ));
+    }
+    if manuals
+        .iter()
+        .any(|it| !blob.code_scores.contains_key(&it.question_id))
+    {
+        return Err(AppError::new(
+            StatusCode::CONFLICT,
+            "PENDING_CODE",
+            "请先给完该生全部待批改题目",
+        ));
+    }
+    blob.marking_confirmed = true;
+    let (obj, total, _) = grade_blob(&items, &mut blob, task.auto_grade);
+    sqlx::query("UPDATE attempts SET answers_json=?, objective_score=?, total_score=? WHERE id=?")
+        .bind(serde_json::to_string(&blob).unwrap_or_else(|_| "{}".into()))
+        .bind(obj)
+        .bind(total)
+        .bind(&id)
+        .execute(&state.pool)
+        .await?;
+    crate::tasks::maybe_mark_graded(&state, &row.get::<String, _>("task_id")).await?;
+    Ok(Json(json!({
+        "marking_confirmed": true,
+        "objective_score": obj,
+        "total_score": total
+    })))
 }
 
 pub async fn list_results(
@@ -304,6 +386,12 @@ pub async fn analysis(
         .iter()
         .filter(|s| **s >= pass && **s < good_cut)
         .count();
+    let plus_cut = cuts[4].max(excellent_cut);
+    let excellent_plus = scores.iter().filter(|s| **s >= plus_cut).count();
+    let excellent_only = scores
+        .iter()
+        .filter(|s| **s >= excellent_cut && **s < plus_cut)
+        .count();
     let mut per_question: Vec<Value> = Vec::new();
     let mut type_got: HashMap<String, (f64, f64, f64, f64, usize)> = HashMap::new();
     if let Some(first) = rows.first() {
@@ -500,12 +588,15 @@ pub async fn analysis(
         obj.insert("full_rate".into(), json!(rate(full_mark)));
         obj.insert("submit_rate".into(), json!(submit_rate));
         obj.insert("cv".into(), json!(cv));
-        obj.insert("excellent_only".into(), json!(excellent));
+        obj.insert("excellent_only".into(), json!(excellent_only));
         obj.insert("good_only".into(), json!(good_only));
         obj.insert("pass_only".into(), json!(pass_only));
-        obj.insert("excellent_only_rate".into(), json!(rate(excellent)));
+        obj.insert("excellent_only_rate".into(), json!(rate(excellent_only)));
         obj.insert("good_only_rate".into(), json!(rate(good_only)));
         obj.insert("pass_only_rate".into(), json!(rate(pass_only)));
+        obj.insert("excellent_plus".into(), json!(excellent_plus));
+        obj.insert("excellent_plus_score".into(), json!(plus_cut));
+        obj.insert("excellent_plus_rate".into(), json!(rate(excellent_plus)));
         obj.insert("top_pct".into(), json!(top_pct));
         obj.insert("bottom_pct".into(), json!(bottom_pct));
         obj.insert("top_n".into(), json!(top_n));
@@ -542,16 +633,9 @@ pub async fn attempt_paper(
     }
     let task_id: String = row.get("task_id");
     let task = load_task(&state, &task_id).await?;
-    if task.status != "closed" && task.status != "graded" && task.status != "released" {
-        return Err(AppError::new(
-            StatusCode::CONFLICT,
-            "BAD_STATE",
-            "收卷后才能查看学生试卷",
-        ));
-    }
     let items = parse_items(&row.get::<String, _>("items_json"));
     let mut blob = parse_answers(&row.get::<String, _>("answers_json"));
-    grade_blob(&items, &mut blob);
+    grade_blob(&items, &mut blob, task.auto_grade);
     let details: Vec<Value> = items
         .iter()
         .map(|it| {
@@ -585,6 +669,7 @@ pub async fn attempt_paper(
 }
 
 async fn load_result_rows(state: &AppState, task_id: &str) -> Result<Vec<Value>, AppError> {
+    let task = load_task(state, task_id).await?;
     let rows = sqlx::query(
         r#"SELECT s.student_no, s.name, s.class_name, a.client_id, a.total_score, a.submitted_at,
                   a.answers_json, p.items_json, a.id as attempt_id
@@ -601,7 +686,7 @@ async fn load_result_rows(state: &AppState, task_id: &str) -> Result<Vec<Value>,
     for row in rows {
         let items = parse_items(&row.get::<String, _>("items_json"));
         let mut blob = parse_answers(&row.get::<String, _>("answers_json"));
-        grade_blob(&items, &mut blob);
+        grade_blob(&items, &mut blob, task.auto_grade);
         let item_scores: Vec<Value> = items
             .iter()
             .map(|it| match blob.item_scores.get(&it.question_id) {
@@ -635,12 +720,14 @@ async fn load_result_rows(state: &AppState, task_id: &str) -> Result<Vec<Value>,
             "item_points": item_points,
             "item_ids": items.iter().map(|it| json!(it.question_id)).collect::<Vec<_>>(),
             "item_stems": items.iter().map(|it| json!(it.stem)).collect::<Vec<_>>(),
+            "marking_confirmed": blob.marking_confirmed,
             "code_items": items
                 .iter()
-                .filter(|it| it.qtype == bank_html::QType::Code)
+                .filter(|it| needs_manual(it, task.auto_grade))
                 .map(|it| {
                     json!({
                         "question_id": it.question_id,
+                        "qtype": crate::banks::qtype_str(it.qtype),
                         "stem": it.stem,
                         "points": it.points,
                         "response": blob.items.get(&it.question_id),

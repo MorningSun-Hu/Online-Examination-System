@@ -144,6 +144,8 @@ pub async fn migrate(pool: &SqlitePool) -> Result<(), sqlx::Error> {
     ensure_column(pool, "paper_rules", "bank_draws_json", "TEXT").await?;
     ensure_column(pool, "exam_papers", "live_draw", "INTEGER NOT NULL DEFAULT 1").await?;
     ensure_column(pool, "exam_papers", "items_json", "TEXT").await?;
+    ensure_column(pool, "exam_tasks", "auto_grade", "INTEGER NOT NULL DEFAULT 1").await?;
+    ensure_column(pool, "exam_papers", "auto_grade", "INTEGER NOT NULL DEFAULT 1").await?;
     Ok(())
 }
 

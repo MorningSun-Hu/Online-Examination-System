@@ -43,6 +43,8 @@ pub struct CreatePaperBody {
     pub rule: PaperRuleIn,
     #[serde(default)]
     pub live_draw: bool,
+    #[serde(default)]
+    pub auto_grade: Option<bool>,
 }
 
 #[derive(Deserialize, Default)]
@@ -65,6 +67,7 @@ pub struct PaperOut {
     pub score_plan: Value,
     pub bank_draws: Vec<crate::paper::BankDraw>,
     pub live_draw: bool,
+    pub auto_grade: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -92,6 +95,7 @@ fn row_to_out(r: sqlx::sqlite::SqliteRow) -> PaperOut {
             r.try_get::<Option<String>, _>("bank_draws_json").ok().flatten(),
         ),
         live_draw: r.try_get::<i64, _>("live_draw").ok().unwrap_or(1) != 0,
+        auto_grade: r.try_get::<i64, _>("auto_grade").ok().unwrap_or(1) != 0,
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }
@@ -100,7 +104,7 @@ fn row_to_out(r: sqlx::sqlite::SqliteRow) -> PaperOut {
 pub async fn list_papers(State(state): State<AppState>) -> Result<Json<Value>, AppError> {
     let rows = sqlx::query(
         r#"SELECT id, title, bank_ids_json, type_counts_json, shuffle_within_section, shuffle_options,
-                  type_subtotals_json, score_plan_json, bank_draws_json, live_draw, total_score, pass_score, created_at, updated_at
+                  type_subtotals_json, score_plan_json, bank_draws_json, live_draw, auto_grade, total_score, pass_score, created_at, updated_at
            FROM exam_papers ORDER BY updated_at DESC"#,
     )
     .fetch_all(&state.pool)
@@ -130,6 +134,7 @@ pub async fn create_paper(
     let pass = body.pass_score.unwrap_or(body.total_score * 60 / 100);
     let id = Ulid::new().to_string();
     let now = Utc::now().to_rfc3339();
+    let auto_grade = body.auto_grade.unwrap_or(true);
     let banks_json = serde_json::to_string(&body.rule.bank_ids).unwrap_or_else(|_| "[]".into());
     let counts_json = serde_json::to_string(&body.rule.type_counts).unwrap_or_else(|_| "{}".into());
     let sub_json = body
@@ -139,8 +144,8 @@ pub async fn create_paper(
         .map(|s| serde_json::to_string(s).unwrap_or_else(|_| "{}".into()));
     sqlx::query(
         r#"INSERT INTO exam_papers(id, title, bank_ids_json, type_counts_json, shuffle_within_section,
-           shuffle_options, type_subtotals_json, bank_draws_json, score_plan_json, live_draw, items_json, total_score, pass_score, created_at, updated_at)
-           VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?, ?, ?)"#,
+           shuffle_options, type_subtotals_json, bank_draws_json, score_plan_json, live_draw, auto_grade, items_json, total_score, pass_score, created_at, updated_at)
+           VALUES(?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, ?, ?, ?, ?)"#,
     )
     .bind(&id)
     .bind(body.title.trim())
@@ -151,6 +156,7 @@ pub async fn create_paper(
     .bind(&sub_json)
     .bind(serde_json::to_string(&body.rule.bank_draws).unwrap_or_else(|_| "[]".into()))
     .bind(if body.live_draw { 1 } else { 0 })
+    .bind(if auto_grade { 1 } else { 0 })
     .bind(body.total_score)
     .bind(pass)
     .bind(&now)
@@ -222,7 +228,7 @@ pub async fn preview_paper(
 async fn get_paper_row(state: &AppState, id: &str) -> Result<PaperOut, AppError> {
     let row = sqlx::query(
         r#"SELECT id, title, bank_ids_json, type_counts_json, shuffle_within_section, shuffle_options,
-                  type_subtotals_json, score_plan_json, bank_draws_json, live_draw, total_score, pass_score, created_at, updated_at
+                  type_subtotals_json, score_plan_json, bank_draws_json, live_draw, auto_grade, total_score, pass_score, created_at, updated_at
            FROM exam_papers WHERE id = ?"#,
     )
     .bind(id)
@@ -421,8 +427,8 @@ pub async fn copy_paper_rules(
     Ok(())
 }
 
-pub async fn paper_totals(state: &AppState, id: &str) -> Result<(i64, i64, String), AppError> {
-    let row = sqlx::query("SELECT title, total_score, pass_score FROM exam_papers WHERE id = ?")
+pub async fn paper_totals(state: &AppState, id: &str) -> Result<(i64, i64, String, bool), AppError> {
+    let row = sqlx::query("SELECT title, total_score, pass_score, auto_grade FROM exam_papers WHERE id = ?")
         .bind(id)
         .fetch_optional(&state.pool)
         .await?
@@ -431,6 +437,7 @@ pub async fn paper_totals(state: &AppState, id: &str) -> Result<(i64, i64, Strin
         row.get("total_score"),
         row.get("pass_score"),
         row.get("title"),
+        row.try_get::<i64, _>("auto_grade").unwrap_or(1) != 0,
     ))
 }
 

@@ -96,6 +96,7 @@ pub fn app(state: AppState) -> Router {
         .route("/api/teacher/tasks/{id}/split", post(tasks::split_by_class))
         .route("/api/teacher/tasks/{id}/publish", post(tasks::publish))
         .route("/api/teacher/tasks/{id}/close", post(tasks::close))
+        .route("/api/teacher/tasks/{id}/end", post(tasks::end))
         .route("/api/teacher/tasks/{id}/grade", post(tasks::confirm_grade))
         .route("/api/teacher/tasks/{id}/release", post(tasks::release))
         .route("/api/teacher/tasks/{id}/monitor", get(tasks::monitor))
@@ -106,6 +107,10 @@ pub fn app(state: AppState) -> Router {
         .route(
             "/api/teacher/attempts/{id}/code-scores",
             put(results::code_scores),
+        )
+        .route(
+            "/api/teacher/attempts/{id}/confirm-marking",
+            post(results::confirm_marking),
         )
         .route_layer(middleware::from_fn_with_state(
             state.clone(),

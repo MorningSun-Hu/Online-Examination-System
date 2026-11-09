@@ -43,6 +43,27 @@ fn multiple_all_or_nothing() {
 }
 
 #[test]
+fn fill_ignores_spaces_around_operators() {
+    let ans = Answer::Fill(vec!["i ** 2".into(), "i * i".into()]);
+    let starstar = grade(
+        QType::Fill,
+        &ans,
+        &StudentResponse::Fill("i**2".into()),
+        3,
+        None,
+    );
+    assert_eq!(starstar.awarded, Some(3));
+    let times = grade(
+        QType::Fill,
+        &ans,
+        &StudentResponse::Fill("i*i".into()),
+        3,
+        None,
+    );
+    assert_eq!(times.awarded, Some(3));
+}
+
+#[test]
 fn judge_and_code() {
     let j = grade(
         QType::Judge,

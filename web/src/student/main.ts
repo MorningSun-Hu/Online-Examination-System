@@ -59,6 +59,11 @@ function esc(s: unknown): string {
     .replace(/"/g, "&quot;");
 }
 
+function clipTitle(text: unknown): string {
+  const full = String(text ?? "");
+  return `<span class="clip-title" title="${esc(full)}">${esc(full)}</span>`;
+}
+
 function showValue(v: unknown): string {
   if (v == null || v === "") {
     return "未作答";
@@ -113,6 +118,7 @@ let clockTimer: number | null = null;
 let debounceTimer: number | null = null;
 let submitting = false;
 let paperBound = false;
+let classPickBound = false;
 
 const root = document.getElementById("app")!;
 
@@ -125,6 +131,24 @@ function dropToken(): void {
   }
   localStorage.removeItem(TOKEN_KEY);
   token = null;
+}
+
+function clearIdentity(): void {
+  try {
+    localStorage.removeItem(PROFILE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+function resetToEnter(): void {
+  dropToken();
+  clearIdentity();
+  paper = null;
+  result = null;
+  answers = {};
+  flash = "";
+  render();
 }
 
 function cacheKey(): string {
@@ -407,7 +431,7 @@ function resultHtml(): string {
     <p class="meta">总分 ${esc(result?.total_score)} · 客观 ${esc(result?.objective_score)}</p>
     ${rows}
     ${retry}
-  </div>`);
+  </div>`, String(result?.title || paper?.title || "教室考试"), `<button type="button" class="bar-back" id="leave">返回</button>`);
 }
 
 function profile(): { class_name?: string; name?: string; student_no?: string } {
@@ -454,15 +478,72 @@ async function lookupIdentity(form: HTMLFormElement): Promise<void> {
     if (box) box.textContent = flash;
     return;
   }
-  const cls = form.querySelector<HTMLInputElement>("input[name=class_name]");
   const nm = form.querySelector<HTMLInputElement>("input[name=name]");
   const no = form.querySelector<HTMLInputElement>("input[name=student_no]");
-  if (cls && r.data.class_name) cls.value = r.data.class_name;
+  if (r.data.class_name) setClassValue(form, r.data.class_name);
   if (nm && r.data.name) nm.value = r.data.name;
   if (no && r.data.student_no) no.value = r.data.student_no;
   flash = "";
   const box = document.querySelector(".err");
   if (box) box.textContent = "";
+}
+
+function setClassValue(scope: ParentNode, value: string): void {
+  const field = scope.querySelector<HTMLElement>(".class-field");
+  const hidden = (field || scope).querySelector<HTMLInputElement>("input[name=class_name]");
+  const label = field?.querySelector<HTMLElement>(".class-value");
+  if (hidden) hidden.value = value;
+  if (label) {
+    label.textContent = value || "选择班级";
+    label.classList.toggle("is-empty", !value);
+  }
+  field?.querySelectorAll<HTMLElement>(".class-opt").forEach((opt) => {
+    opt.classList.toggle("on", (opt.dataset.class || "") === value);
+  });
+}
+
+function bindClassPicker(form: HTMLFormElement): void {
+  const field = form.querySelector<HTMLElement>(".class-field");
+  if (!field) {
+    return;
+  }
+  const trigger = field.querySelector<HTMLButtonElement>(".class-trigger");
+  const menu = field.querySelector<HTMLElement>(".class-menu");
+  if (!trigger || !menu) {
+    return;
+  }
+  const setOpen = (open: boolean) => {
+    field.classList.toggle("open", open);
+    trigger.setAttribute("aria-expanded", open ? "true" : "false");
+    menu.hidden = !open;
+  };
+  trigger.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(menu.hidden);
+  });
+  menu.addEventListener("click", (e) => {
+    const opt = (e.target as HTMLElement).closest<HTMLElement>(".class-opt");
+    if (!opt) {
+      return;
+    }
+    setClassValue(form, opt.dataset.class || "");
+    setOpen(false);
+  });
+  if (!classPickBound) {
+    classPickBound = true;
+    root.addEventListener("click", (e) => {
+      const openField = root.querySelector<HTMLElement>(".class-field.open");
+      if (!openField || openField.contains(e.target as Node)) {
+        return;
+      }
+      openField.classList.remove("open");
+      const openMenu = openField.querySelector<HTMLElement>(".class-menu");
+      const openTrigger = openField.querySelector(".class-trigger");
+      if (openMenu) openMenu.hidden = true;
+      openTrigger?.setAttribute("aria-expanded", "false");
+    });
+  }
 }
 
 function bindPaper(): void {
@@ -498,19 +579,45 @@ async function trySubmit(): Promise<void> {
   const msg = miss.length
     ? `还有 ${miss.length} 题未作答，确认交卷？`
     : "确认交卷？提交后不能再改。";
-  if (!window.confirm(msg)) {
+  const ok = await askSubmit(msg);
+  if (!ok) {
     return;
   }
   await autoSubmit();
 }
 
-function hallFrame(inner: string, title = "教室考试"): string {
+function askSubmit(msg: string): Promise<boolean> {
+  const mask = document.getElementById("submit-confirm");
+  const text = document.getElementById("submit-msg");
+  const yes = document.getElementById("submit-ok");
+  const no = document.getElementById("submit-cancel");
+  if (!mask || !text || !yes || !no) {
+    return Promise.resolve(true);
+  }
+  text.textContent = msg;
+  mask.hidden = false;
+  return new Promise((resolve) => {
+    const done = (v: boolean) => {
+      mask.hidden = true;
+      yes.removeEventListener("click", onYes);
+      no.removeEventListener("click", onNo);
+      resolve(v);
+    };
+    const onYes = () => done(true);
+    const onNo = () => done(false);
+    yes.addEventListener("click", onYes);
+    no.addEventListener("click", onNo);
+  });
+}
+
+function hallFrame(inner: string, title = "教室考试", actions = ""): string {
   return `<div class="hall">
     <header class="bar">
       <div>
-        <strong>${esc(title)}</strong>
+        <strong>${clipTitle(title)}</strong>
         <div class="save">局域网考场</div>
       </div>
+      ${actions}
     </header>
     ${inner}
   </div>`;
@@ -534,16 +641,25 @@ function render(): void {
         <h1>${esc(brief.title || "考场试卷")}</h1>
         <p class="meta">${pending ? "这场考试尚未开放。请确认答卷入口是否对应已发布的任务。" : "这场考试已经结束。成绩在教师公开后再从本场入口查看。"}</p>
         ${flash ? `<p class="err">${esc(flash)}</p>` : ""}
-      </div>`);
+      </div>`, brief.title || "教室考试");
       return;
     }
-    const p = profile();
     const classes = brief?.classes || [];
-    const classVal = p.class_name || (brief?.single_class ? String(classes[0] || "") : "");
-    const classField = brief?.single_class
-      ? `<label class="field">班级<input name="class_name" value="${esc(classVal)}" readonly /></label>`
-      : `<label class="field">班级<input name="class_name" list="class-list" value="${esc(classVal)}" /></label>
-         <datalist id="class-list">${classes.map((c) => `<option value="${esc(c)}"></option>`).join("")}</datalist>`;
+    const classVal = brief?.single_class ? String(classes[0] || "") : "";
+    const classOpts = classes
+      .map(
+        (c) =>
+          `<button type="button" class="class-opt${c === classVal ? " on" : ""}" data-class="${esc(c)}" role="option">${esc(c)}</button>`,
+      )
+      .join("");
+    const classField = `<label class="field class-field">班级
+         <input type="hidden" name="class_name" value="${esc(classVal)}" />
+         <button type="button" class="class-trigger" aria-haspopup="listbox" aria-expanded="false">
+           <span class="class-value${classVal ? "" : " is-empty"}">${esc(classVal || "选择班级")}</span>
+           <span class="class-caret" aria-hidden="true"></span>
+         </button>
+         <div class="class-menu" hidden role="listbox">${classOpts}</div>
+       </label>`;
     root.innerHTML = hallFrame(`<div class="enter">
       <div class="paper-head">
         <div class="school">教室考试</div>
@@ -555,20 +671,21 @@ function render(): void {
       </div>
       ${flash ? `<p class="err">${esc(flash)}</p>` : ""}
       <p class="meta">先填写身份。姓名或学号填一项即可带出另一项；三项齐全后才能领取试卷。</p>
-      <form id="enter">
+      <form id="enter" autocomplete="off">
         <div class="id-grid">
           ${classField}
-          <label class="field">姓名<input name="name" value="${esc(p.name || "")}" /></label>
-          <label class="field">学号<input name="student_no" value="${esc(p.student_no || "")}" /></label>
+          <label class="field">姓名<input name="name" value="" autocomplete="off" /></label>
+          <label class="field">学号<input name="student_no" value="" autocomplete="off" /></label>
         </div>
         <p><button type="submit">领取试卷</button></p>
       </form>
-    </div>`);
+    </div>`, brief?.title || "教室考试");
     root.querySelector("#enter")?.addEventListener("submit", (e) => {
       e.preventDefault();
       void onEnter(e.target as HTMLFormElement);
     });
     const form = root.querySelector<HTMLFormElement>("#enter");
+    if (form) bindClassPicker(form);
     form?.querySelectorAll("input[name=name], input[name=student_no]").forEach((el) => {
       el.addEventListener("blur", () => {
         if (form) void lookupIdentity(form);
@@ -579,10 +696,10 @@ function render(): void {
   if (result && (paper?.released || paper?.mode === "practice") && (result as { items?: unknown }).items) {
     root.innerHTML = resultHtml();
     root.querySelector("#retry")?.addEventListener("click", () => {
-      dropToken();
-      paper = null;
-      result = null;
-      render();
+      resetToEnter();
+    });
+    root.querySelector("#leave")?.addEventListener("click", () => {
+      resetToEnter();
     });
     return;
   }
@@ -592,12 +709,9 @@ function render(): void {
       <h1>答卷已交</h1>
       <p class="meta">考试成绩在教师公开后再显示。练习模式可重新进入再练。</p>
       ${flash ? `<p class="err">${esc(flash)}</p>` : ""}
-      <button class="ghost" id="leave" type="button">返回入口</button>
-    </div>`);
+    </div>`, paper?.title || "教室考试", `<button type="button" class="bar-back" id="leave">返回</button>`);
     root.querySelector("#leave")?.addEventListener("click", () => {
-      dropToken();
-      paper = null;
-      render();
+      resetToEnter();
     });
     return;
   }
@@ -613,14 +727,14 @@ function render(): void {
   root.innerHTML = `<div class="exam">
     <header class="bar">
       <div>
-        <strong>${esc(paper?.title || (paper?.mode === "practice" ? "练习卷" : "考试卷"))}</strong>
+        <strong>${clipTitle(paper?.title || (paper?.mode === "practice" ? "练习卷" : "考试卷"))}</strong>
         <div class="save" id="save-note">${esc(saveNote)}</div>
       </div>
       <div>
         <div class="clock" id="clock">${esc(remain())}</div>
         <div class="save" id="progress">已答 ${done}/${items.length}</div>
       </div>
-      ${canSubmit ? `<button id="submit" type="button">交卷</button>` : `<span class="save">未开放提前交卷</span>`}
+      ${canSubmit ? `<button class="btn-submit" id="submit" type="button">交卷</button>` : `<span class="save">未开放提前交卷</span>`}
     </header>
     <div class="workspace">
       <div class="paper">
@@ -645,6 +759,15 @@ function render(): void {
         <div class="sheet-grid">${dots}</div>
       </aside>
     </div>
+    <div class="confirm-mask" id="submit-confirm" hidden>
+      <div class="confirm-card">
+        <p id="submit-msg">确认交卷？</p>
+        <div class="confirm-actions">
+          <button type="button" class="confirm-cancel" id="submit-cancel">取消</button>
+          <button type="button" class="btn-submit" id="submit-ok">确认交卷</button>
+        </div>
+      </div>
+    </div>
   </div>`;
   bindPaper();
   saveTimer = window.setInterval(() => {
@@ -666,23 +789,38 @@ async function autoSubmit(): Promise<void> {
     return;
   }
   submitting = true;
-  await save();
-  const r = await scall("/api/student/submit", { method: "POST", body: "{}" });
-  if (r.status >= 400) {
-    flash = errMsg(r.data, "交卷失败");
+  const mask = document.getElementById("submit-confirm");
+  if (mask) mask.hidden = true;
+  const btn = document.getElementById("submit") as HTMLButtonElement | null;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "正在交卷…";
+  }
+  try {
+    collect();
+    await save();
+    const r = await scall("/api/student/submit", { method: "POST", body: "{}" });
+    if (r.status >= 400) {
+      flash = errMsg(r.data, "交卷失败");
+      submitting = false;
+      render();
+      return;
+    }
+    paper = { ...(paper || {}), status: "submitted" };
+    result = r.data;
+    flash = "";
+    try {
+      localStorage.removeItem(cacheKey());
+    } catch {
+      /* ignore */
+    }
     submitting = false;
     render();
-    return;
-  }
-  paper = { ...(paper || {}), status: "submitted" };
-  result = r.data;
-  flash = "";
-  try {
-    localStorage.removeItem(cacheKey());
   } catch {
-    /* ignore */
+    flash = "交卷失败";
+    submitting = false;
+    render();
   }
-  render();
 }
 
 async function onEnter(form: HTMLFormElement): Promise<void> {

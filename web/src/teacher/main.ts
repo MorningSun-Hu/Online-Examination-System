@@ -1,7 +1,7 @@
 import { api, errMsg } from "../shared/api";
 import "./style.css";
 
-type Tab = "banks" | "roster" | "papers" | "tasks" | "grades";
+type Tab = "banks" | "roster" | "papers" | "tasks" | "marking" | "grades";
 
 const TOKEN_KEY = "exam_teacher_token";
 const QTYPES: [string, string][] = [
@@ -12,12 +12,20 @@ const QTYPES: [string, string][] = [
   ["code", "编程"],
 ];
 
+const AUTO_GRADE_WARN =
+  "打开后将按参考答案自动批改填空题。参考答案为空的填空仍需手工给分。编程题始终手工。学生答案与参考不完全一致可能错判。确定打开？";
+
 function esc(s: unknown): string {
   return String(s ?? "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+function clipTitle(text: unknown): string {
+  const full = String(text ?? "");
+  return `<span class="clip-title" title="${esc(full)}">${esc(full)}</span>`;
 }
 
 function qlabel(t: string): string {
@@ -32,7 +40,7 @@ function statusLabel(s: unknown): string {
   const map: Record<string, string> = {
     draft: "草稿",
     published: "进行中",
-    closed: "已收卷",
+    closed: "已结束",
     graded: "已批改",
     released: "已公开",
     not_entered: "未进场",
@@ -280,6 +288,30 @@ function formatAnswerHtml(q: Record<string, unknown>): string {
   return esc(JSON.stringify(a));
 }
 
+function stripInlineChoiceHtml(html: string): string {
+  const m = html.match(/<br\s*\/?>\s*A\s*[.．]/i);
+  if (!m || m.index == null) {
+    return html;
+  }
+  return html.slice(0, m.index).replace(/(?:<br\s*\/?>\s*)+$/i, "").trimEnd();
+}
+
+function displayStemHtml(
+  stemHtml: unknown,
+  stem: unknown,
+  hasOptions: boolean,
+  fallbackPrefix = "",
+): string {
+  let html = String(stemHtml || "");
+  if (hasOptions) {
+    html = stripInlineChoiceHtml(html);
+  }
+  if (html.includes("<")) {
+    return html;
+  }
+  return `<p>${fallbackPrefix}${esc(stem)}</p>`;
+}
+
 function answerToInput(q: Record<string, unknown>): string {
   const a = q.answer as { kind?: string; value?: unknown } | undefined;
   if (!a) return "";
@@ -489,7 +521,7 @@ async function loadTab(): Promise<void> {
       paperPreviewErr = "";
     }
   }
-  if (tab === "tasks" || tab === "grades") {
+  if (tab === "tasks" || tab === "grades" || tab === "marking") {
     const r = await tcall<{ tasks: Array<Record<string, unknown>> }>("/api/teacher/tasks");
     if (r.status === 200) {
       tasks = r.data.tasks || [];
@@ -531,6 +563,32 @@ async function saveEarly(on: boolean): Promise<void> {
   }
 }
 
+function confirmAutoGrade(): boolean {
+  return window.confirm(AUTO_GRADE_WARN);
+}
+
+async function saveAutoGrade(on: boolean): Promise<void> {
+  if (!taskId) {
+    return;
+  }
+  if (on && !confirmAutoGrade()) {
+    render();
+    return;
+  }
+  const r = await tcall(`/api/teacher/tasks/${taskId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ auto_grade: on }),
+  });
+  if (r.status === 204 && task) {
+    task.auto_grade = on;
+    await loadTask();
+    render();
+  } else {
+    tell(errMsg(r.data), "err");
+    render();
+  }
+}
+
 function analysisQuery(): string {
   const p = new URLSearchParams();
   if (analysisPass) p.set("pass_score", analysisPass);
@@ -552,9 +610,11 @@ async function loadTask(): Promise<void> {
     const m = await tcall<Record<string, unknown>>(`/api/teacher/tasks/${taskId}/monitor`);
     monitor = m.status === 200 ? m.data : null;
   }
-  if (tab === "grades") {
+  if (tab === "grades" || tab === "marking") {
     const rs = await tcall<Record<string, unknown>>(`/api/teacher/tasks/${taskId}/results`);
     results = rs.status === 200 ? rs.data : null;
+  }
+  if (tab === "grades") {
     const an = await tcall<Record<string, unknown>>(`/api/teacher/tasks/${taskId}/analysis${analysisQuery()}`);
     analysis = an.status === 200 ? an.data : null;
   }
@@ -782,6 +842,27 @@ function bind(): void {
     const box = ev.currentTarget as HTMLInputElement;
     void saveEarly(box.checked);
   });
+  root.querySelectorAll<HTMLInputElement>("[data-auto-grade]").forEach((box) => {
+    box.addEventListener("change", () => {
+      void saveAutoGrade(box.checked);
+    });
+  });
+  root.querySelectorAll<HTMLInputElement>("form[name=paper-create] input[name=auto_grade], form[name=task-create] input[name=auto_grade]").forEach((box) => {
+    box.addEventListener("change", () => {
+      if (box.checked && !confirmAutoGrade()) {
+        box.checked = false;
+      }
+    });
+  });
+  const paperSel = root.querySelector<HTMLSelectElement>("form[name=task-create] select[name=paper_id]");
+  const taskAuto = root.querySelector<HTMLInputElement>("form[name=task-create] input[name=auto_grade]");
+  paperSel?.addEventListener("change", () => {
+    if (!taskAuto) {
+      return;
+    }
+    const p = papers.find((x) => String(x.id) === paperSel.value);
+    taskAuto.checked = p ? p.auto_grade !== false : true;
+  });
   bindPaperScores();
   root.querySelectorAll("[data-qid]").forEach((el) => {
     el.addEventListener("click", (ev) => {
@@ -906,12 +987,45 @@ function bind(): void {
     el.addEventListener("click", (ev) => {
       ev.stopPropagation();
       const id = (el as HTMLElement).dataset.gradeStu || "";
-      gradeStu = gradeStu === id ? "" : id;
+      gradeStu = tab === "marking" ? id : gradeStu === id ? "" : id;
       if (!gradeStu || String(gradePaper?.attempt_id || "") !== gradeStu) {
         gradePaper = null;
       }
       render();
     });
+  });
+  root.querySelectorAll("[data-score-n]").forEach((el) => {
+    el.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const btn = el as HTMLButtonElement;
+      if (btn.disabled) {
+        return;
+      }
+      void saveOneCodeScore(
+        btn.dataset.attempt || "",
+        btn.dataset.qid || "",
+        Number(btn.dataset.scoreN),
+        Number(btn.dataset.max || 0),
+      );
+    });
+  });
+  root.querySelectorAll<HTMLInputElement>("[data-score-input]").forEach((inp) => {
+    inp.addEventListener("change", () => {
+      if (inp.disabled || inp.value === "") {
+        return;
+      }
+      void saveOneCodeScore(inp.dataset.attempt || "", inp.dataset.qid || "", Number(inp.value), Number(inp.max || 0));
+    });
+  });
+  root.querySelector("[data-mark-next]")?.addEventListener("click", (ev) => {
+    ev.stopPropagation();
+    const id = (ev.currentTarget as HTMLElement).dataset.markNext || "";
+    if (id) {
+      gradeStu = id;
+      gradePaper = null;
+      render();
+    }
   });
   root.querySelector(".modal[data-grade-paper-close]")?.addEventListener("click", (ev) => {
     if (ev.target === ev.currentTarget) {
@@ -922,6 +1036,12 @@ function bind(): void {
   root.querySelector("button[data-grade-paper-close]")?.addEventListener("click", () => {
     gradePaper = null;
     render();
+  });
+  root.querySelector<HTMLSelectElement>("form[name=question] [name=qtype]")?.addEventListener("change", (ev) => {
+    const form = (ev.currentTarget as HTMLElement).closest("form");
+    if (form) {
+      syncQuestionTypeFields(form);
+    }
   });
   fillQuestionForm();
 }
@@ -984,15 +1104,25 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
     }
     if (name === "question") {
       const qtype = val("qtype");
-      const options = String(fd.get("options") || "")
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const [key, ...rest] = line.split("|");
-          return { key: key.trim(), text: rest.join("|").trim() || key.trim() };
-        });
-      const rawAns = val("answer");
+      const choice = qtype === "single" || qtype === "multiple";
+      const options = choice
+        ? String(fd.get("options") || "")
+            .split("\n")
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .map((line) => {
+              const [key, ...rest] = line.split("|");
+              return { key: key.trim(), text: rest.join("|").trim() || key.trim() };
+            })
+        : [];
+      const rawAns =
+        qtype === "judge"
+          ? val("answer_judge")
+          : qtype === "fill"
+            ? val("answer_fill")
+            : qtype === "code"
+              ? val("answer_code")
+              : val("answer");
       let answer: unknown = { kind: qtype, value: rawAns };
       if (qtype === "multiple") {
         answer = { kind: "multiple", value: rawAns.split(/[,，\s]+/).filter(Boolean) };
@@ -1104,6 +1234,7 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
             bank_draws,
           },
           live_draw: fd.get("live_draw") === "on",
+          auto_grade: fd.get("auto_grade") === "on",
         }),
       });
       tellResult(r.status === 201, "试卷已保存，可在任务里选用", r.data);
@@ -1137,6 +1268,7 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
           student_ids,
           class_names,
           paper_id,
+          auto_grade: fd.get("auto_grade") === "on",
         }),
       });
       if (r.status === 201) {
@@ -1181,8 +1313,12 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
       const attempt = val("attempt_id");
       const scores: Record<string, number> = {};
       form.querySelectorAll<HTMLInputElement>("input[data-qid]").forEach((inp) => {
-        if (inp.value) {
-          scores[inp.dataset.qid || ""] = Number(inp.value);
+        if (inp.value === "") {
+          return;
+        }
+        const qid = inp.dataset.qid || "";
+        if (qid) {
+          scores[qid] = clampScore(Number(inp.value), Number(inp.max || 0));
         }
       });
       const r = await tcall(`/api/teacher/attempts/${attempt}/code-scores`, {
@@ -1213,9 +1349,10 @@ async function onSubmit(form: HTMLFormElement): Promise<void> {
 async function act(kind: string, id?: string): Promise<void> {
   const confirms: Record<string, string> = {
     publish: "确认发布？名单内学生即可进入考场。",
-    close: "确认收卷？未交卷的学生将无法继续作答。",
-    grade: "确认批改客观题并汇总成绩？",
-    release: "确认公开试卷？学生机将看到成绩与解析。",
+    close: "确认收卷？正在作答的学生将被提交，任务继续进行。",
+    end: "确认结束任务？未交卷学生将无法继续，任务转入历史后才能公开试卷。",
+    "confirm-mark": "确认该生批改结果？",
+    release: "确认公开试卷？需已结束任务，且全部有编程题的学生都已确认批改。学生机将看到成绩与解析。",
     "del-bank": "确认删除该题库？",
     "del-q": "确认删除这道题？",
     "del-paper": "确认删除这份试卷？",
@@ -1232,8 +1369,8 @@ async function act(kind: string, id?: string): Promise<void> {
   if (confirms[kind] && !window.confirm(confirms[kind])) {
     return;
   }
-  if ((kind === "publish" || kind === "close" || kind === "split") && task && isHistory(task.status)) {
-    tell("历史任务不能再发布、收卷或拆分子任务", "err");
+  if ((kind === "publish" || kind === "close" || kind === "end" || kind === "split") && task && isHistory(task.status)) {
+    tell("历史任务不能再发布、收卷、结束或拆分子任务", "err");
     return;
   }
   if (kind === "split" && task && task.parent_id) {
@@ -1248,9 +1385,25 @@ async function act(kind: string, id?: string): Promise<void> {
     tell("原任务已拆分，请发布各班子任务", "err");
     return;
   }
+  if (kind === "release") {
+    const status = String(task?.status || "");
+    if (status === "published" || status === "draft") {
+      tell("结束后才能公开试卷", "err");
+      return;
+    }
+    if (status !== "closed" && status !== "graded") {
+      tell("批改完成后才能公开试卷", "err");
+      return;
+    }
+    if (markingRows().some(markingPending)) {
+      tell("还有学生未确认批改", "err");
+      return;
+    }
+  }
   const map: Record<string, [string, string]> = {
     publish: ["POST", `/api/teacher/tasks/${id}/publish`],
     close: ["POST", `/api/teacher/tasks/${id}/close`],
+    end: ["POST", `/api/teacher/tasks/${id}/end`],
     grade: ["POST", `/api/teacher/tasks/${id}/grade`],
     release: ["POST", `/api/teacher/tasks/${id}/release`],
   };
@@ -1359,6 +1512,25 @@ async function act(kind: string, id?: string): Promise<void> {
     }
     render();
     return;
+  } else if (kind === "confirm-mark") {
+    const r = await tcall(`/api/teacher/attempts/${id}/confirm-marking`, {
+      method: "POST",
+      body: "{}",
+    });
+    if (r.status < 400) {
+      const row = markingRows().find((x) => String(x.attempt_id) === id);
+      if (row) {
+        row.marking_confirmed = true;
+      }
+      const next = nextPendingAttempt(id || "");
+      if (next) {
+        gradeStu = next;
+        gradePaper = null;
+      }
+      tell("该生批改已确认", "ok");
+    } else {
+      tell(errMsg(r.data), "err");
+    }
   } else if (map[kind]) {
     const [method, path] = map[kind];
     const r = await tcall(path, { method, body: method === "POST" ? "{}" : undefined });
@@ -1378,6 +1550,7 @@ function fillQuestionForm(): void {
     qid.value = editQid;
   }
   if (!editQid) {
+    syncQuestionTypeFields(form);
     return;
   }
   const q = ((bank?.questions as Array<Record<string, unknown>>) || []).find((x) => String(x.id) === editQid);
@@ -1395,7 +1568,26 @@ function fillQuestionForm(): void {
   set("stem", String(q.stem || ""));
   const opts = (q.options as Array<{ key?: string; text?: string }>) || [];
   set("options", opts.map((o) => `${o.key || ""}|${o.text || ""}`).join("\n"));
-  set("answer", answerToInput(q));
+  const ans = answerToInput(q);
+  set("answer", ans);
+  set("answer_judge", ans === "true" ? "true" : "false");
+  set("answer_fill", ans);
+  set("answer_code", ans);
+  syncQuestionTypeFields(form);
+}
+
+function syncQuestionTypeFields(form: HTMLFormElement): void {
+  const qtype = form.querySelector<HTMLSelectElement>("[name=qtype]")?.value || "single";
+  form.querySelectorAll<HTMLElement>(".q-options, .q-ans").forEach((el) => {
+    const types = (el.dataset.for || "").split(",").filter(Boolean);
+    const on = types.includes(qtype);
+    el.hidden = !on;
+    el.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input, textarea, select").forEach(
+      (inp) => {
+        inp.disabled = !on;
+      },
+    );
+  });
 }
 
 function gateHtml(): string {
@@ -1416,6 +1608,7 @@ function navHtml(): string {
     ["roster", "班级名册"],
     ["papers", "试卷管理"],
     ["tasks", "任务管理"],
+    ["marking", "试卷批改"],
     ["grades", "成绩分析"],
   ];
   return `<nav>${items
@@ -1429,7 +1622,8 @@ function titles(): Record<Tab, [string, string]> {
     roster: ["班级名册", "先建班级，再导入或逐条登记学生。"],
     papers: ["试卷管理", "点新建组卷；选中试卷后右侧预览题目。"],
     tasks: ["任务管理", "点新建任务；按钮随状态出现。发布后名单冻结，只监考。"],
-    grades: ["成绩分析", "选历史任务看总览；点指标看学生成绩或题目分析。"],
+    marking: ["试卷批改", "点色块即给分。给完该生编程题后点提交确认。全部确认且任务结束后可公开试卷。"],
+    grades: ["成绩分析", "选任务看总览、学生成绩和题目分析。"],
   };
 }
 
@@ -1529,7 +1723,7 @@ function accessHtml(): string {
       <h2>当场考试</h2>
       ${
         live
-          ? `<p><strong>${esc(live.title)}</strong> · ${esc(modeLabel(live.mode))}
+          ? `<p>${clipTitle(live.title)} · ${esc(modeLabel(live.mode))}
              <span class="badge ${badgeFor(live.status)}">${esc(statusLabel(live.status))}</span></p>
              <p class="hint">结束于 ${esc(live.closes_at || "—")}</p>
              <p class="toolbar"><button type="button" data-tab="tasks" data-task="${esc(live.id)}">进入监考</button></p>`
@@ -1570,9 +1764,7 @@ function questionSheetHtml(
       .map((o) => `${esc(o.key)}. ${esc(o.text)}`)
       .join("　");
     const on = String(q.id) === activeQid ? " on" : "";
-    const stem = q.stem_html && String(q.stem_html).includes("<")
-      ? String(q.stem_html)
-      : `<p>第${i + 1}题 ${esc(q.stem)}</p>`;
+    const stem = displayStemHtml(q.stem_html, q.stem, !!opts, `第${i + 1}题 `);
     blocks.push(`<article class="qitem${on}" tabindex="0" data-qid="${esc(q.id)}">
       <div class="question">
         ${stem}
@@ -1601,8 +1793,11 @@ function questionFormHtml(): string {
       <label class="field">来源<input name="source" /></label>
     </div>
     <label class="field">题干<textarea name="stem" required></textarea></label>
-    <label class="field">选项（每行 键|文本）<textarea name="options" placeholder="A|选项A"></textarea></label>
-    <label class="field">答案<input name="answer" placeholder="单选 A；多选 A,C；判断 true；填空 a|b" /></label>
+    <label class="field q-options" data-for="single,multiple">选项（每行 键|文本）<textarea name="options" placeholder="A|选项A"></textarea></label>
+    <label class="field q-ans" data-for="single,multiple">答案<input name="answer" placeholder="单选填 A，多选填 A,C" /></label>
+    <label class="field q-ans" data-for="judge">答案<select name="answer_judge"><option value="true">对</option><option value="false">错</option></select></label>
+    <label class="field q-ans" data-for="fill">答案<input name="answer_fill" placeholder="多空用 | 分隔" /></label>
+    <label class="field q-ans" data-for="code">参考答案<textarea name="answer_code" rows="8" placeholder="可选，供批改对照"></textarea></label>
     <p class="toolbar">
       <button class="primary" type="submit">保存题目</button>
       <button type="button" class="ghost" data-cancel-q>取消</button>
@@ -1965,8 +2160,9 @@ function papersHtml(): string {
               <label class="check"><input type="checkbox" name="shuffle_within_section" checked /> <span>题型内乱序</span></label>
               <label class="check"><input type="checkbox" name="shuffle_options" checked /> <span>选项乱序</span></label>
               <label class="check"><input type="checkbox" name="live_draw" /> <span>智能实时组卷</span></label>
+              <label class="check"><input type="checkbox" name="auto_grade" checked /> <span>自动批改填空题</span></label>
             </div>
-            <p class="hint">勾选后每次预览和每位考生都会重新抽题；不勾选则创建时生成一份固定试卷。</p>
+            <p class="hint">勾选「智能实时组卷」后每次预览和每位考生都会重新抽题；不勾选则创建时生成一份固定试卷。单选/多选/判断有参考答案即自动批改。关闭「自动批改填空题」后填空走给分台；编程题与空参考答案始终手工。</p>
             <div class="row">${counts}</div>
             <p class="toolbar"><button type="button" data-toggle="bank_id">全选题库</button></p>
             <p class="hint">每个题库可填抽题数量或比例；都留空则只按题型题量混合抽取。若填写，勾选的题库都要填，且数量之和等于各题型题量之和。</p>
@@ -2028,6 +2224,7 @@ function taskCreateHtml(): string {
         <label class="field">模式<select name="mode"><option value="exam">考试</option><option value="practice">练习</option></select></label>
         <label class="field">时长（分钟）<input name="duration_minutes" type="number" value="45" /></label>
         <label class="check early-flag"><input type="checkbox" name="allow_early_submit" /> <span>允许提前交卷</span></label>
+        <label class="check early-flag"><input type="checkbox" name="auto_grade" checked /> <span>自动批改填空题</span></label>
       </div>
       <label class="field">选用试卷<select name="paper_id" required><option value="">请选择已组试卷</option>${paperOpts}</select></label>
       <h3>参加班级</h3>
@@ -2084,6 +2281,9 @@ function taskDetailHtml(): string {
     ? `关闭于 ${esc(task.closes_at || "—")}`
     : `${esc(task.duration_minutes)} 分钟`;
   const earlyBox = `<label class="check early-flag"><input type="checkbox" data-early ${early} /> <span>允许提前交卷</span></label>`;
+  const autoOn = task.auto_grade !== false ? "checked" : "";
+  const autoLock = status === "released" ? " disabled" : "";
+  const autoBox = `<label class="check early-flag"><input type="checkbox" data-auto-grade ${autoOn}${autoLock} /> <span>自动批改填空题</span></label>`;
   let body = `<p>${esc(modeLabel(task.mode))} · <span class="badge ${badgeFor(status)}">${esc(statusLabel(status))}</span> · ${meta}</p>`;
   if (draft) {
     const splitBtn =
@@ -2095,6 +2295,7 @@ function taskDetailHtml(): string {
         ${splitBtn}
         <button class="danger" type="button" data-click="del-task:${esc(taskId)}">删除任务</button>
         ${earlyBox}
+        ${autoBox}
       </p>
       <h3>答卷入口</h3>
       ${studentUrlBox()}
@@ -2110,7 +2311,9 @@ function taskDetailHtml(): string {
   if (published) {
     return `${body}<p class="toolbar">
         <button class="danger" type="button" data-click="close:${esc(taskId)}">收卷</button>
+        <button class="danger" type="button" data-click="end:${esc(taskId)}">结束任务</button>
         ${earlyBox}
+        ${autoBox}
       </p>
       <h3>答卷入口</h3>
       ${studentUrlBox()}
@@ -2118,6 +2321,7 @@ function taskDetailHtml(): string {
       <div id="monitor-mount">${monitorInner()}</div>`;
   }
   return `${body}
+    <p class="toolbar">${autoBox}</p>
     <h3>答卷入口</h3>
     ${studentUrlBox()}
     <h3>当时监控</h3>
@@ -2248,10 +2452,10 @@ function tasksHtml(): string {
   const list = filtered
     .map(
       (t) =>
-        `<tr class="pick${taskId === t.id ? " on" : ""}" data-task="${esc(t.id)}"><td>${esc(t.title)}</td>
-         <td>${esc(modeLabel(t.mode))}</td>
-         <td><span class="badge ${badgeFor(t.status)}">${esc(statusLabel(t.status))}</span></td>
-         <td>${esc(t.total_score)}</td></tr>`,
+        `<tr class="pick${taskId === t.id ? " on" : ""}" data-task="${esc(t.id)}"><td class="clip">${clipTitle(t.title)}</td>
+         <td class="mode">${esc(modeLabel(t.mode))}</td>
+         <td class="st"><span class="badge ${badgeFor(t.status)}">${esc(statusLabel(t.status))}</span></td>
+         <td class="num">${esc(t.total_score)}</td></tr>`,
     )
     .join("");
   const dialog = showTaskForm
@@ -2269,18 +2473,18 @@ function tasksHtml(): string {
     <button type="button" data-task-view="current" class="${taskView === "current" ? "on" : ""}">当前任务</button>
     <button type="button" data-task-view="history" class="${taskView === "history" ? "on" : ""}">历史任务</button>
   </div>`;
-  const emptyHint = history ? "还没有已收卷的历史任务。" : "还没有草稿或进行中的任务。";
+  const emptyHint = history ? "还没有已结束的历史任务。" : "还没有草稿或进行中的任务。";
   return `<div class="task-wrap">${seg}<div class="grid tasks">
     <section class="panel">
       <div class="head-row">
         <h2>${history ? "历史任务" : "当前任务"}</h2>
         <button class="primary" type="button" data-task-new>新建任务</button>
       </div>
-      <div class="scroll"><table><thead><tr><th>标题</th><th>模式</th><th>状态</th><th>总分</th></tr></thead>
+      <div class="scroll"><table class="task-list"><thead><tr><th class="clip">标题</th><th class="mode">模式</th><th class="st">状态</th><th class="num">总分</th></tr></thead>
       <tbody>${list || `<tr><td colspan="4" class="muted">${emptyHint}</td></tr>`}</tbody></table></div>
     </section>
     <section class="panel">
-      <h2>${task ? esc(task.title) : "任务详情"}</h2>
+      <h2>${task ? clipTitle(task.title) : "任务详情"}</h2>
       ${taskDetailHtml()}
     </section>
   </div>${dialog}</div>`;
@@ -2349,48 +2553,348 @@ function rankTableHtml(title: string, rows: Array<Record<string, unknown>>): str
     <tbody>${body || `<tr><td colspan="4" class="muted">暂无</td></tr>`}</tbody></table></div>`;
 }
 
+function codeResponseText(c: Record<string, unknown>): string {
+  const resp = c.response;
+  if (typeof resp === "object" && resp && "value" in (resp as object)) {
+    return String((resp as { value?: unknown }).value ?? "");
+  }
+  if (resp == null) {
+    return "";
+  }
+  return typeof resp === "string" ? resp : JSON.stringify(resp);
+}
+
+function markingCanScore(status = String(task?.status || "")): boolean {
+  return status === "published" || status === "closed" || status === "graded";
+}
+
+function codePending(r: Record<string, unknown>): boolean {
+  return ((r.code_items as Array<Record<string, unknown>>) || []).some((c) => c.score == null || c.score === "");
+}
+
+function markingPending(r: Record<string, unknown>): boolean {
+  const codes = (r.code_items as Array<Record<string, unknown>>) || [];
+  if (!codes.length) {
+    return false;
+  }
+  if (codePending(r)) {
+    return true;
+  }
+  return !r.marking_confirmed;
+}
+
+function clampScore(n: number, max: number): number {
+  if (!Number.isFinite(n)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(max, Math.round(n)));
+}
+
+const GRADE_STOPS: [number, number, number][] = [
+  [255, 212, 0],
+  [252, 175, 23],
+  [237, 25, 65],
+];
+
+function mixRgb(t: number, stops: [number, number, number][]): [number, number, number] {
+  const u = Math.min(1, Math.max(0, t));
+  const segs = stops.length - 1;
+  const x = u * segs;
+  const i = Math.min(segs - 1, Math.floor(x));
+  const f = x - i;
+  const a = stops[i];
+  const b = stops[i + 1];
+  const lin = (c: number) => {
+    const s = c / 255;
+    return s <= 0.04045 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+  };
+  const srgb = (v: number) => {
+    const y = v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055;
+    return Math.round(Math.min(1, Math.max(0, y)) * 255);
+  };
+  return [
+    srgb(lin(a[0]) * (1 - f) + lin(b[0]) * f),
+    srgb(lin(a[1]) * (1 - f) + lin(b[1]) * f),
+    srgb(lin(a[2]) * (1 - f) + lin(b[2]) * f),
+  ];
+}
+
+function rgbCss(c: [number, number, number]): string {
+  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+}
+
+function scorePadStyle(n: number, coloredIndex: number, coloredCount: number): string {
+  if (n <= 0 || coloredCount <= 0) {
+    return "background:#c5ccd4;color:#102018";
+  }
+  const t0 = coloredCount <= 1 ? 0 : coloredIndex / coloredCount;
+  const t1 = coloredCount <= 1 ? 1 : (coloredIndex + 1) / coloredCount;
+  const a = mixRgb(t0, GRADE_STOPS);
+  const b = mixRgb(t1, GRADE_STOPS);
+  const m = mixRgb((t0 + t1) / 2, GRADE_STOPS);
+  const ink = (0.299 * m[0] + 0.587 * m[1] + 0.114 * m[2]) / 255 > 0.58 ? "#102018" : "#fff";
+  return `background:linear-gradient(to right, ${rgbCss(a)}, ${rgbCss(b)});color:${ink}`;
+}
+
+function scorePadStep(max: number): number {
+  const cap = 13;
+  if (max <= cap - 1) {
+    return 1;
+  }
+  const raw = Math.ceil(max / (cap - 1));
+  const nice = [1, 2, 5, 10, 20, 25, 50, 100];
+  return nice.find((n) => n >= raw) || raw;
+}
+
+function scorePadValues(max: number): number[] {
+  if (max <= 0) {
+    return [0];
+  }
+  const step = scorePadStep(max);
+  const vals: number[] = [];
+  for (let n = 0; n <= max; n += step) {
+    vals.push(n);
+  }
+  if (vals[vals.length - 1] !== max) {
+    vals.push(max);
+  }
+  return vals;
+}
+
+function markingRows(): Array<Record<string, unknown>> {
+  return (results?.results as Array<Record<string, unknown>>) || [];
+}
+
+function ensureMarkingStudent(): void {
+  const rows = markingRows();
+  if (!rows.length) {
+    gradeStu = "";
+    return;
+  }
+  if (gradeStu && rows.some((r) => String(r.attempt_id) === gradeStu)) {
+    return;
+  }
+  const pending = rows.find(markingPending);
+  gradeStu = String((pending || rows[0]).attempt_id || "");
+}
+
+function nextPendingAttempt(current: string): string {
+  const rows = markingRows();
+  const idx = rows.findIndex((r) => String(r.attempt_id) === current);
+  const ordered = idx >= 0 ? rows.slice(idx + 1).concat(rows.slice(0, idx)) : rows;
+  const next = ordered.find(markingPending);
+  return next ? String(next.attempt_id) : "";
+}
+
+async function saveOneCodeScore(attempt: string, qid: string, score: number, max: number): Promise<void> {
+  if (!attempt || !qid || !markingCanScore()) {
+    return;
+  }
+  const s = clampScore(score, max);
+  const r = await tcall(`/api/teacher/attempts/${attempt}/code-scores`, {
+    method: "PUT",
+    body: JSON.stringify({ scores: { [qid]: s } }),
+  });
+  if (r.status >= 400) {
+    tell(errMsg(r.data), "err");
+    return;
+  }
+  const row = markingRows().find((x) => String(x.attempt_id) === attempt);
+  if (row) {
+    const items = (row.code_items as Array<Record<string, unknown>>) || [];
+    const it = items.find((c) => String(c.question_id) === qid);
+    if (it) {
+      it.score = s;
+    }
+    row.marking_confirmed = false;
+    const data = r.data as { total_score?: unknown };
+    if (data?.total_score != null) {
+      row.total_score = data.total_score;
+    }
+  }
+  render();
+}
+
+function scorePadsHtml(attempt: string, qid: unknown, points: unknown, score: unknown, locked: boolean): string {
+  const max = Math.max(0, Number(points) || 0);
+  const cur = score == null || score === "" ? null : Number(score);
+  const vals = scorePadValues(max);
+  const coloredCount = vals.reduce((n, v) => n + (v > 0 ? 1 : 0), 0);
+  let coloredIndex = -1;
+  const pads = vals
+    .map((n) => {
+      if (n > 0) {
+        coloredIndex += 1;
+      }
+      const on = cur != null && Number.isFinite(cur) && cur === n;
+      return `<button type="button" class="score-pad${on ? " on" : ""}" data-score-n="${n}" data-qid="${esc(qid)}" data-attempt="${esc(attempt)}" data-max="${max}" style="${scorePadStyle(n, coloredIndex, coloredCount)}"${locked ? " disabled" : ""}>${n}</button>`;
+    })
+    .join("");
+  return `<div class="score-row">
+    <div class="score-pads">${pads}</div>
+    <span class="score-num"><input data-score-input data-qid="${esc(qid)}" data-attempt="${esc(attempt)}" type="number" min="0" max="${max}" step="1" value="${cur ?? ""}"${locked ? " disabled" : ""} /><span>分</span></span>
+  </div>`;
+}
+
+function markingHtml(): string {
+  const markTasks = tasks.filter((t) => String(t.status) !== "draft");
+  const list = markTasks
+    .map(
+      (t) =>
+        `<tr class="pick${taskId === t.id ? " on" : ""}" data-task="${esc(t.id)}"><td class="clip">${clipTitle(t.title)}</td>
+         <td class="st"><span class="badge ${badgeFor(t.status)}">${esc(statusLabel(t.status))}</span></td>
+         <td class="num">${esc(t.total_score)}</td></tr>`,
+    )
+    .join("");
+  const ready = Boolean(task && String(task.status) !== "draft");
+  if (ready) {
+    ensureMarkingStudent();
+  }
+  return `<div class="grid marking">
+    <section class="panel">
+      <h2>考试任务</h2>
+      <div class="scroll"><table class="task-list"><thead><tr><th class="clip">标题</th><th class="st">状态</th><th class="num">总分</th></tr></thead>
+      <tbody>${list || `<tr><td colspan="3" class="muted">还没有可批改的任务</td></tr>`}</tbody></table></div>
+    </section>
+    <section class="panel">${ready ? markingStudentsHtml() : `<h2>考生</h2><p class="hint">先选左侧任务。</p>`}</section>
+    <section class="panel">${ready ? markingDeskHtml() : `<h2>给分台</h2><p class="hint">点色块即给分。给完该生待批改题后点提交确认。全部确认且任务结束后可公开试卷。</p>`}</section>
+  </div>${gradePaperDialogHtml()}`;
+}
+
+function markingStudentsHtml(): string {
+  const rows = markingRows();
+  const scoreN = rows.filter(codePending).length;
+  const confirmN = rows.filter((r) => markingPending(r) && !codePending(r)).length;
+  const body = rows
+    .map((r) => {
+      const codes = (r.code_items as Array<Record<string, unknown>>) || [];
+      const picked = gradeStu === String(r.attempt_id);
+      let mark = "—";
+      if (codes.length) {
+        if (codePending(r)) {
+          mark = `<span class="badge warn">待给分</span>`;
+        } else if (!r.marking_confirmed) {
+          mark = `<span class="badge warn">待确认</span>`;
+        } else {
+          mark = `<span class="badge ok">已确认</span>`;
+        }
+      }
+      return `<tr class="pick${picked ? " on" : ""}" data-grade-stu="${esc(r.attempt_id)}">
+        <td class="mono">${esc(r.student_no)}</td><td>${esc(r.name)}</td>
+        <td>${esc(r.total_score)}</td><td>${mark}</td>
+      </tr>`;
+    })
+    .join("");
+  const tally = scoreN || confirmN ? `待给分 ${scoreN} · 待确认 ${confirmN}` : "全部已确认";
+  return `<div class="head-row">
+      <h2>考生</h2>
+      <p class="hint">${tally} · 共 ${rows.length}</p>
+    </div>
+    <div class="scroll"><table class="stu-compact">
+      <thead><tr><th>学号</th><th>姓名</th><th>总分</th><th>批改</th></tr></thead>
+      <tbody>${body || `<tr><td colspan="4" class="muted">还没有交卷记录</td></tr>`}</tbody>
+    </table></div>`;
+}
+
+function markingDeskHtml(): string {
+  const status = String(task?.status || "");
+  const closed = status === "closed";
+  const graded = status === "graded";
+  const released = status === "released";
+  const row = markingRows().find((r) => String(r.attempt_id) === gradeStu);
+  const nextId = nextPendingAttempt(gradeStu);
+  const who = row ? `${esc(row.name)} · ${esc(row.student_no)}` : "给分台";
+  const codes = ((row?.code_items as Array<Record<string, unknown>>) || []);
+  const confirmed = Boolean(row?.marking_confirmed);
+  const canConfirm = Boolean(gradeStu && codes.length && !codePending(row || {}) && !confirmed && markingCanScore());
+  const ended = closed || graded;
+  const allDone = !markingRows().some(markingPending);
+  const canRelease = ended && allDone && !released;
+  let markHint = `${clipTitle(task?.title)} · 点色块即给分。给完该生待批改题后点提交，确认这份答卷。`;
+  if (status === "published") {
+    markHint += "全部确认并结束任务后可公开试卷。";
+  } else if (!allDone) {
+    markHint += "还有学生未确认批改。";
+  } else if (ended) {
+    markHint += "可以公开试卷。";
+  } else {
+    markHint += "结束任务后可公开试卷。";
+  }
+  return `<div class="head-row">
+      <h2 class="mark-stu">${who}</h2>
+      <div class="acts">
+        ${!released && codes.length && markingCanScore() ? `<button class="primary" type="button" data-click="confirm-mark:${esc(gradeStu)}"${canConfirm ? "" : " disabled"}>提交</button>` : ""}
+        ${released ? "" : `<button type="button" data-click="release:${esc(taskId)}"${canRelease ? "" : " disabled"}>公开试卷</button>`}
+        ${gradeStu ? `<button class="primary" type="button" data-click="view-paper:${esc(gradeStu)}">查看试卷</button>` : ""}
+        ${nextId ? `<button type="button" data-mark-next="${esc(nextId)}">下一位</button>` : ""}
+      </div>
+    </div>
+    <p class="hint">${markHint}</p>
+    <p class="toolbar"><label class="check early-flag"><input type="checkbox" data-auto-grade ${task?.auto_grade !== false ? "checked" : ""}${released ? " disabled" : ""} /> <span>自动批改填空题</span></label></p>
+    ${markingCodeHtml()}`;
+}
+
+function markingCodeHtml(): string {
+  if (!gradeStu) {
+    return `<div class="code-mark"><p class="hint">从中间栏选择一名考生。</p></div>`;
+  }
+  const row = markingRows().find((r) => String(r.attempt_id) === gradeStu);
+  if (!row) {
+    return `<div class="code-mark"><p class="hint">从中间栏选择一名考生。</p></div>`;
+  }
+  const codes = (row.code_items as Array<Record<string, unknown>>) || [];
+  if (!codes.length) {
+    return `<div class="code-mark"><p class="hint">该生没有需要手工给分的题目。可点「查看试卷」批阅整卷。</p></div>`;
+  }
+  const locked = !markingCanScore();
+  const attempt = String(row.attempt_id || "");
+  const body = codes
+    .map((c, i) => {
+      const scored = c.score == null || c.score === "" ? "未给分" : `已记 ${esc(c.score)} 分`;
+      return `<article class="code-item">
+          <h3>第 ${i + 1} 题 · ${esc(qlabel(String(c.qtype || "code")))} · 满分 ${esc(c.points)} <span class="muted">${scored}</span></h3>
+          <p class="code-stem">${esc(c.stem)}</p>
+          <pre>${esc(codeResponseText(c))}</pre>
+          ${scorePadsHtml(attempt, c.question_id, c.points, c.score, locked)}
+        </article>`;
+    })
+    .join("");
+  return `<div class="code-mark">${body}</div>`;
+}
+
 function gradesHtml(): string {
-  const gradeTasks = tasks.filter((t) => isHistory(t.status));
+  const gradeTasks = tasks.filter((t) => String(t.status) !== "draft");
   const list = gradeTasks
     .map(
       (t) =>
-        `<tr class="pick${taskId === t.id ? " on" : ""}" data-task="${esc(t.id)}"><td>${esc(t.title)}</td>
-         <td><span class="badge ${badgeFor(t.status)}">${esc(statusLabel(t.status))}</span></td>
-         <td>${esc(t.total_score)}</td></tr>`,
+        `<tr class="pick${taskId === t.id ? " on" : ""}" data-task="${esc(t.id)}"><td class="clip">${clipTitle(t.title)}</td>
+         <td class="st"><span class="badge ${badgeFor(t.status)}">${esc(statusLabel(t.status))}</span></td>
+         <td class="num">${esc(t.total_score)}</td></tr>`,
     )
     .join("");
-  const historic = task ? isHistory(task.status) : false;
-  let right = `<h2>成绩总览</h2><p class="hint">选择左侧已收卷任务查看数据大屏。</p>`;
-  if (task && !historic) {
-    right = `<h2>${esc(task.title)}</h2><p class="hint">收卷后才能批改与分析。</p>`;
-  } else if (task && historic) {
+  let right = `<h2>成绩总览</h2><p class="hint">选择左侧任务查看当前交卷数据。</p>`;
+  if (task && String(task.status) !== "draft") {
     right = gradeRightHtml();
   }
   return `<div class="grid grades">
     <section class="panel">
-      <h2>历史任务</h2>
-      <div class="scroll"><table><thead><tr><th>标题</th><th>状态</th><th>总分</th></tr></thead>
-      <tbody>${list || `<tr><td colspan="3" class="muted">还没有已收卷任务</td></tr>`}</tbody></table></div>
+      <h2>考试任务</h2>
+      <div class="scroll"><table class="task-list"><thead><tr><th class="clip">标题</th><th class="st">状态</th><th class="num">总分</th></tr></thead>
+      <tbody>${list || `<tr><td colspan="3" class="muted">还没有可分析的任务</td></tr>`}</tbody></table></div>
     </section>
     <section class="panel">${right}</section>
   </div>${gradeQuestionDialogHtml()}${gradePaperDialogHtml()}`;
 }
 
 function gradeRightHtml(): string {
-  const status = String(task?.status || "");
-  const closed = status === "closed";
-  const graded = status === "graded";
-  const released = status === "released";
   const pane = (id: "board" | "students" | "questions", lab: string) =>
     `<button type="button" data-grade-pane="${id}" class="${gradePane === id ? "on" : ""}">${lab}</button>`;
   const body =
     gradePane === "students" ? gradeStudentsHtml() : gradePane === "questions" ? gradeQuestionsHtml() : gradeBoardHtml();
   return `<div class="head-row">
-      <h2>${esc(task?.title)}</h2>
+      <h2>${clipTitle(task?.title)}</h2>
       <div class="acts">
-        ${closed ? `<button class="primary" type="button" data-click="grade:${esc(taskId)}">确认批改</button>` : ""}
-        ${graded ? `<button type="button" data-click="release:${esc(taskId)}">公开试卷</button>` : ""}
-        ${gradePane === "students" && gradeStu && (graded || released) ? `<button class="primary" type="button" data-click="view-paper:${esc(gradeStu)}">查看试卷</button>` : ""}
+        ${gradePane === "students" && gradeStu ? `<button class="primary" type="button" data-click="view-paper:${esc(gradeStu)}">查看试卷</button>` : ""}
         <button type="button" data-click="csv:${esc(taskId)}">导出成绩</button>
       </div>
     </div>
@@ -2456,6 +2960,7 @@ function gradeBoardHtml(): string {
       ${gradeStat("平均分", fmtScore(a.average), "students", fmtPct(a.avg_rate))}
       ${gradeStat("及格率", fmtPct(a.pass_rate), "students", `及格线 ${fmtScore(a.pass_score, 0)}`)}
       ${gradeStat("优秀率", fmtPct(a.excellent_rate), "students", `≥${fmtScore(a.excellent_score, 0)}`)}
+      ${gradeStat("优秀+率", fmtPct(a.excellent_plus_rate), "students", `≥${fmtScore(a.excellent_plus_score, 0)}`)}
       ${gradeStat("良好率", fmtPct(a.good_rate), "students", `≥${fmtScore(a.good_score, 0)}`)}
       ${gradeStat("满分率", fmtPct(a.full_rate), "students", `${esc(a.full_mark ?? 0)}人`)}
       ${gradeStat("最高 / 最低", `${fmtScore(a.max, 0)} / ${fmtScore(a.min, 0)}`)}
@@ -2466,10 +2971,11 @@ function gradeBoardHtml(): string {
     <div class="charts">
       ${vbarChartHtml("分数段人数", bandItems)}
       ${donutChartHtml("成绩构成", [
-        ["优秀", Number(a.excellent_only || 0), "#1c7c5a"],
-        ["良好", Number(a.good_only || 0), "#1b8f86"],
-        ["及格", Number(a.pass_only || 0), "#c56a1a"],
-        ["不及格", Number(a.failed || 0), "#c4453c"],
+        ["优秀+", Number(a.excellent_plus || 0), "#7fb80e"],
+        ["优秀", Number(a.excellent_only || 0), "#005831"],
+        ["良好", Number(a.good_only || 0), "#33a3dc"],
+        ["及格", Number(a.pass_only || 0), "#ffc20e"],
+        ["不及格", Number(a.failed || 0), "#aa2116"],
       ])}
       ${hbarChartHtml("题型得分率", types, "questions")}
       ${hbarChartHtml("班级及格率", classes, "students")}
@@ -2482,36 +2988,17 @@ function gradeBoardHtml(): string {
 }
 
 function gradeStudentsHtml(): string {
-  const closed = String(task?.status || "") === "closed";
-  const canView = String(task?.status || "") === "graded" || String(task?.status || "") === "released";
   const rows = ((results?.results as Array<Record<string, unknown>>) || [])
     .map((r) => {
-      const codes = closed
-        ? ((r.code_items as Array<Record<string, unknown>>) || [])
-            .map(
-              (c) =>
-                `<div class="muted">${esc(c.stem)}（满分 ${esc(c.points)}）<pre>${esc(
-                  typeof c.response === "object" && c.response && "value" in (c.response as object)
-                    ? String((c.response as { value?: unknown }).value ?? "")
-                    : JSON.stringify(c.response),
-                )}</pre>
-                 <label class="field">给分<input data-qid="${esc(c.question_id)}" type="number" min="0" max="${esc(c.points)}" value="${esc(c.score ?? "")}" /></label>`,
-            )
-            .join("")
-        : "";
-      const picked = canView && gradeStu === String(r.attempt_id);
-      return `<tr${canView ? ` class="pick${picked ? " on" : ""}" data-grade-stu="${esc(r.attempt_id)}"` : ""}>
+      const picked = gradeStu === String(r.attempt_id);
+      return `<tr class="pick${picked ? " on" : ""}" data-grade-stu="${esc(r.attempt_id)}">
         <td class="mono">${esc(r.student_no)}</td><td>${esc(r.name)}</td><td>${esc(r.class_name)}</td>
         <td>${esc(r.total_score)}</td><td>${esc(r.submitted_at || "—")}</td>
         <td>${esc((r.item_scores as unknown[])?.join(" / "))}</td>
-      </tr>${
-        codes
-          ? `<tr><td colspan="6"><form name="code-score"><input type="hidden" name="attempt_id" value="${esc(r.attempt_id)}" />${codes}<button type="submit">保存编程分</button></form></td></tr>`
-          : ""
-      }`;
+      </tr>`;
     })
     .join("");
-  return `<div class="scroll grade-detail">${canView ? `<p class="hint">选中一名学生后，点标题栏「查看试卷」。</p>` : ""}<table>
+  return `<div class="scroll grade-detail"><p class="hint">选中一名学生后，点标题栏「查看试卷」。</p><table>
     <thead><tr><th>学号</th><th>姓名</th><th>班级</th><th>总分</th><th>提交时间</th><th>各题</th></tr></thead>
     <tbody>${rows || `<tr><td colspan="6" class="muted">还没有交卷记录</td></tr>`}</tbody>
   </table></div>`;
@@ -2563,8 +3050,7 @@ function gradeQuestionDialogHtml(): string {
   const opts = ((q.options as Array<{ key?: string; text?: string }>) || [])
     .map((o) => `${esc(o.key)}. ${esc(o.text)}`)
     .join("　");
-  const stem =
-    q.stem_html && String(q.stem_html).includes("<") ? String(q.stem_html) : `<p>${esc(q.stem)}</p>`;
+  const stem = displayStemHtml(q.stem_html, q.stem, !!opts);
   return `<div class="modal" data-grade-q-close>
     <div class="dialog">
       <div class="head-row">
@@ -2595,9 +3081,9 @@ function gradePaperDialogHtml(): string {
     .map((it, i) => {
       const ok = itemCorrect(it);
       const mark = ok ? '<span class="ok">正确</span>' : '<span class="bad">待核 / 错误</span>';
-      const stem =
-        it.stem_html && String(it.stem_html).includes("<") ? String(it.stem_html) : `<p>${esc(it.stem)}</p>`;
-      return `<article class="qitem on">
+      const hasOpts = Array.isArray(it.options) && (it.options as unknown[]).length > 0;
+      const stem = displayStemHtml(it.stem_html, it.stem, hasOpts);
+      return `<article class="qitem">
         <h3>${i + 1}. [${esc(qlabel(String(it.qtype)))}] ${mark} ${esc(it.score ?? "—")} / ${esc(it.points ?? "")}</h3>
         <div class="question">${stem}${reviewOptionsHtml(it)}
           <p>作答：${esc(showAns(it.response))}</p>
@@ -2612,7 +3098,7 @@ function gradePaperDialogHtml(): string {
         <h2>${esc(p.name)} · ${esc(p.student_no)} · ${esc(p.class_name)}</h2>
         <button type="button" class="ghost" data-grade-paper-close>关闭</button>
       </div>
-      <p class="hint">${esc(p.title)} · 总分 ${esc(p.total_score)} / ${esc(p.paper_total)} · 客观 ${esc(p.objective_score)}</p>
+      <p class="hint">${clipTitle(p.title)} · 总分 ${esc(p.total_score)} / ${esc(p.paper_total)} · 客观 ${esc(p.objective_score)}</p>
       <div class="qsheet paper-review">${rows || `<p class="hint">没有题目。</p>`}</div>
     </div>
   </div>`;
@@ -2667,7 +3153,9 @@ function render(): void {
             ? papersHtml()
             : tab === "tasks"
               ? tasksHtml()
-              : gradesHtml();
+              : tab === "marking"
+                ? markingHtml()
+                : gradesHtml();
   root.innerHTML = `<div class="shell">
     <aside class="rail">
       <div>
@@ -2682,7 +3170,7 @@ function render(): void {
       <header class="stage-head">
         <div><h1>${title}</h1><p class="hint">${sub}</p></div>
       </header>
-      <div class="workspace${tab === "banks" || tab === "roster" || tab === "papers" || tab === "tasks" || tab === "grades" ? " fit" : ""}">${body}</div>
+      <div class="workspace${tab === "banks" || tab === "roster" || tab === "papers" || tab === "tasks" || tab === "marking" || tab === "grades" ? " fit" : ""}">${body}</div>
     </main>
   </div>`;
   bind();
@@ -2705,7 +3193,7 @@ window.addEventListener("resize", () => {
 });
 
 window.addEventListener("keydown", (ev) => {
-  if ((ev as KeyboardEvent).key === "Escape" && notice) {
-    hideNotice();
-  }
-});
+    if ((ev as KeyboardEvent).key === "Escape" && notice) {
+      hideNotice();
+    }
+  });
