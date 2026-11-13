@@ -872,18 +872,27 @@ async function onEnter(form: HTMLFormElement): Promise<void> {
 }
 
 async function boot(): Promise<void> {
-  await loadBrief();
-  token = readToken();
-  if (token) {
-    await refreshPaper();
-    const wanted = taskParam() || brief?.task_id || "";
-    if (wanted && paper?.task_id && paper.task_id !== wanted) {
-      dropToken();
-      paper = null;
-      result = null;
+  root.innerHTML = hallFrame(`<div class="sheet">
+    <h1>考场试卷</h1>
+    <p class="meta">正在连接教师机…</p>
+  </div>`);
+  try {
+    await loadBrief();
+    token = readToken();
+    if (token) {
+      await refreshPaper();
+      const wanted = taskParam() || brief?.task_id || "";
+      if (wanted && paper?.task_id && paper.task_id !== wanted) {
+        dropToken();
+        paper = null;
+        result = null;
+      }
     }
+    render();
+  } catch {
+    flash = "无法连接教师机，请确认答卷入口地址，并让教师机防火墙放行 8080 端口。";
+    render();
   }
-  render();
 }
 
 void boot();
